@@ -1,21 +1,46 @@
 import { getToolDescriptionText, executeTools, type ToolCall, type ToolResult } from '../../tools/registry.js'
 import type { AIProvider } from '../../providers/types.js'
 
+export interface RecentPost {
+  textContent: string
+  createdAt: string
+}
+
+export interface CreativeBrief {
+  topic: string
+  angle: string
+  keyPoints: string[]
+  writingTone: string
+  openingHook: string
+  avoidTopics: string[]
+  hashtagSuggestions: string[]
+  useImage: boolean
+  imageConceptHint: string
+  useSearch: boolean
+  reasoning: string
+}
+
 export interface BrainResult {
   toolCalls: ToolCall[]
   toolResults: ToolResult[]
-  researchSummary: string
+  researchData: string
+  creativeBrief: CreativeBrief
   selectedTopics: string[]
+  usedSearch: boolean
 }
 
 const MAX_TOOL_CALLS = 4
 
 /**
- * Brain agent — ReAct-style tool orchestration.
+ * Brain agent — two-phase decision maker.
  *
- * Works with ANY LLM provider (no native function-calling required).
- * The brain model outputs structured JSON with chosen tool calls,
- * tools are executed, and results are synthesized into a research summary.
+ * Phase 1: Analyze channel context + recent posts → decide whether to search
+ *          online, and if so, which tools to use.
+ * Phase 2: With research data (or without if skipped), produce a full creative
+ *          brief that the writer must follow exactly.
+ *
+ * Key: the brain can choose toolCalls: [] to skip all internet research and
+ * write entirely from its own knowledge + recent channel content.
  */
 export async function runBrain(
   channelName: string,
@@ -24,59 +49,79 @@ export async function runBrain(
   contentStyle: string,
   language: string,
   brainProvider: AIProvider,
+  recentPosts: RecentPost[] = [],
   customSystemPrompt?: string,
 ): Promise<BrainResult> {
   const toolDocs = getToolDescriptionText()
+  const langLabel = language === 'zh' ? '简体中文' : language === 'zh-tw' ? '繁体中文' : language
+  const hasEnoughHistory = recentPosts.length >= 3
 
-  const systemPrompt = customSystemPrompt || `You are the strategic brain of an AI content team managing a Telegram channel.
-Your job is to decide which research tools to use to gather the best information for today's post.
-Be smart, targeted, and efficient — choose at most ${MAX_TOOL_CALLS} tools.
-Always reason about what information would make the most impactful and engaging content.`
+  const recentPostsSection =
+    recentPosts.length > 0
+      ? `## 频道最近 ${recentPosts.length} 条发布内容（避免重复，了解频道风格）
+${recentPosts
+  .map(
+    (p, i) =>
+      `[${i + 1}] (${p.createdAt.slice(0, 10)}) ${p.textContent.slice(0, 200)}${p.textContent.length > 200 ? '…' : ''}`,
+  )
+  .join('\n\n')}`
+      : '## 频道历史内容：暂无（频道刚建立或内容很少）'
 
-  const planPrompt = `You are managing a Telegram channel with the following profile:
+  // ─── Phase 1: Decide whether & what to research ───────────────────────────
+  const phase1System =
+    customSystemPrompt ||
+    `你是负责 Telegram 频道「${channelName}」内容运营的首席策略大脑。
+你掌握频道的全部背景信息，深刻理解受众需求和内容调性。
+你是唯一的决策者——后续所有角色都严格执行你的指令。`
 
-**Channel Name**: ${channelName}
-**Description**: ${channelDescription}
-**Operator Notes**: ${userIntro || 'None'}
-**Content Style**: ${contentStyle}
-**Language**: ${language}
+  const phase1Prompt = `你正在为 Telegram 频道制定今天的内容策略：
 
-## Available Research Tools
+【频道名称】${channelName}
+【频道简介】${channelDescription}
+【运营备注】${userIntro || '无特别说明'}
+【内容风格】${contentStyle}
+【发布语言】${langLabel}
+
+${recentPostsSection}
+
+## 可用的联网工具（你可以选择完全不用）
 ${toolDocs}
 
-## Your Task
-Decide which tools to call to gather the best information for today's post.
-Consider: trending topics, recent news, background knowledge, and specific sources.
+## 核心决策：今天是否需要联网搜索？
 
-Respond ONLY with a valid JSON object in this exact format:
+判断标准：
+- **需要搜索**：新闻类、时事类、行业动态类频道；话题需要最新数据支撑；最近内容质量依赖外部信息
+- **不需要搜索**：${hasEnoughHistory ? '频道已有足够内容作为参考，大模型自身知识足以支撑创作；' : ''}话题相对稳定、偏娱乐/生活/技巧类；或者你判断今天适合基于已有知识自由创作
+
+你可以输出 "toolCalls": [] 来跳过联网，直接基于自身知识创作。
+
+只返回如下 JSON，不要任何额外说明：
 {
-  "reasoning": "brief explanation of your strategy",
-  "selectedTopics": ["topic1", "topic2"],
+  "reasoning": "简短说明决策思路：为什么选择搜索或不搜索，以及大概写什么方向",
+  "selectedTopics": ["主题1", "主题2"],
   "toolCalls": [
-    {"tool": "search", "args": {"query": "..."}, "reason": "..."},
-    {"tool": "trending", "args": {"geo": "CN"}, "reason": "..."}
+    {"tool": "工具名", "args": {"参数": "值"}, "reason": "为什么用这个工具"}
   ]
 }
 
-Rules:
-- Max ${MAX_TOOL_CALLS} tool calls
-- At least 1 tool call (usually "search" or "news")
-- toolCalls must be a valid array
-- Match tool names and args exactly to the definitions above`
+规则：
+- toolCalls 可以为空数组（表示不联网）
+- 如要搜索，最多 ${MAX_TOOL_CALLS} 个工具调用
+- tool 名称必须完全匹配：search / scrape / rss / wikipedia / trending / news`
 
-  // Step 1: Ask the brain to plan tool calls
-  const planRaw = await brainProvider.generateText(planPrompt, {
-    systemPrompt,
-    temperature: 0.4,
-    maxTokens: 800,
+  const phase1Raw = await brainProvider.generateText(phase1Prompt, {
+    systemPrompt: phase1System,
+    temperature: 0.35,
+    maxTokens: 700,
   })
 
   let toolCalls: ToolCall[] = []
   let reasoning = ''
   let selectedTopics: string[] = []
+  let decideToSearch = true
 
   try {
-    const jsonMatch = planRaw.match(/\{[\s\S]*\}/)
+    const jsonMatch = phase1Raw.match(/\{[\s\S]*\}/)
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]) as {
         reasoning?: string
@@ -86,64 +131,109 @@ Rules:
       toolCalls = (parsed.toolCalls ?? []).slice(0, MAX_TOOL_CALLS)
       reasoning = parsed.reasoning ?? ''
       selectedTopics = parsed.selectedTopics ?? []
+      decideToSearch = toolCalls.length > 0
     }
   } catch {
-    // Fallback: run a basic search
-    toolCalls = [{ tool: 'search', args: { query: `${channelName} ${channelDescription.slice(0, 40)} 最新` } }]
+    // Parse failed: fall back to a default search
+    toolCalls = [{ tool: 'search', args: { query: `${channelDescription.slice(0, 50)} 最新动态` } }]
+    decideToSearch = true
   }
 
-  if (toolCalls.length === 0) {
-    toolCalls = [{ tool: 'search', args: { query: `${channelName} latest news` } }]
+  // ─── Execute tools (if any) ───────────────────────────────────────────────
+  let toolResults: ToolResult[] = []
+  let rawData = ''
+
+  if (decideToSearch && toolCalls.length > 0) {
+    toolResults = await executeTools(toolCalls)
+    const successResults = toolResults.filter((r) => !r.error && r.output)
+    rawData = successResults.map((r) => `【${r.tool.toUpperCase()}】\n${r.output}`).join('\n\n━━━\n\n')
   }
 
-  // Step 2: Execute all tool calls in parallel
-  const toolResults = await executeTools(toolCalls)
+  // ─── Phase 2: Generate creative brief ─────────────────────────────────────
+  const phase2System = `你是一个资深内容总监，专门为自媒体频道规划内容创意。
+你非常擅长：
+- 从信息中提炼真正有价值、读者愿意看的角度
+- 设计让人眼前一亮的内容开头
+- 确保内容与频道调性完全一致
+- 识别哪些内容会让读者觉得"这就是在说我"或"这个我必须转发"`
 
-  // Step 3: Synthesize results into a research summary
-  const successResults = toolResults.filter((r) => !r.error && r.output)
-  const failedTools = toolResults.filter((r) => r.error)
+  const dataSection = rawData
+    ? `## 联网采集到的原始信息\n${rawData.slice(0, 5000)}`
+    : `## 未进行联网搜索\n基于以下信息创作：频道背景知识 + 大模型自身知识储备${recentPosts.length > 0 ? ' + 频道历史内容风格' : ''}`
 
-  if (successResults.length === 0) {
-    return {
-      toolCalls,
-      toolResults,
-      researchSummary: `No research data available. Create original content about: ${channelDescription}`,
-      selectedTopics,
-    }
-  }
+  const phase2Prompt = `你在为 Telegram 频道「${channelName}」策划今天的内容。
 
-  const rawData = successResults
-    .map((r) => `[${r.tool.toUpperCase()}]\n${r.output}`)
-    .join('\n\n═══\n\n')
+【频道定位】${channelDescription}
+【运营备注】${userIntro || '无'}
+【内容风格】${contentStyle}
+【发布语言】${langLabel}
+【策略思路】${reasoning}
 
-  const synthesisPrompt = `Based on the following research data collected for the Telegram channel "${channelName}", 
-write a comprehensive research summary in ${language === 'zh' ? 'Chinese' : language}.
+${recentPostsSection}
 
-Channel context: ${channelDescription}
-${userIntro ? `Operator notes: ${userIntro}` : ''}
+${dataSection}
 
-Research Data:
-${rawData.slice(0, 6000)}
+## 你的任务
+制定一份完整的创作简报（Creative Brief），指导后续写手完成今天的帖子。
 
-${failedTools.length > 0 ? `Note: ${failedTools.map((t) => t.tool).join(', ')} tools failed.` : ''}
+重点要求：
+1. 内容必须与频道「${channelName}」的定位高度相关
+2. 不要重复最近已发布的话题（查看历史内容）
+3. 选一个最有价值、最能引发读者共鸣的切入角度
+4. 设计抓眼球的开头句子（不要用"随着...""在当今..."等老套套路）
+5. 指定写作语气，贴近真人写作，避免 AI 腔调
 
-Synthesize the most relevant and interesting findings into:
-1. Key insights and facts (3-5 points)
-2. Trending angles worth covering
-3. Suggested content focus for today's post
+只返回如下 JSON 格式，字段都用${langLabel}填写：
+{
+  "topic": "今天要写的核心话题（一句话）",
+  "angle": "独特切入角度，说明为什么这个角度比直接介绍更有吸引力",
+  "keyPoints": ["要包含的关键信息1", "关键信息2", "关键信息3"],
+  "writingTone": "具体的语气要求，例如：犀利吐槽型 / 朋友聊天型 / 干货分享型 / 情感共鸣型",
+  "openingHook": "第一句话的写法示例，直接给出开头句子",
+  "avoidTopics": ["不要提及的内容（如已发布的话题）"],
+  "hashtagSuggestions": ["#标签1", "#标签2", "#标签3"],
+  "useImage": true或false,
+  "imageConceptHint": "图片要表达的视觉概念",
+  "useSearch": ${decideToSearch},
+  "reasoning": "为什么选这个角度和话题"
+}`
 
-Write in flowing prose, ${language === 'zh' ? '用中文' : `in ${language}`}. Max 400 words.`
-
-  const researchSummary = await brainProvider.generateText(synthesisPrompt, {
-    systemPrompt: 'You are a research synthesizer. Extract key insights from raw data. Be concise and focused.',
-    temperature: 0.5,
-    maxTokens: 600,
+  const briefRaw = await brainProvider.generateText(phase2Prompt, {
+    systemPrompt: phase2System,
+    temperature: 0.65,
+    maxTokens: 900,
   })
+
+  let creativeBrief: CreativeBrief = {
+    topic: `关于${channelName}的今日内容`,
+    angle: '直接分享有价值的信息',
+    keyPoints: selectedTopics,
+    writingTone: '自然亲切，像朋友聊天',
+    openingHook: '',
+    avoidTopics: [],
+    hashtagSuggestions: [],
+    useImage: true,
+    imageConceptHint: channelDescription,
+    useSearch: decideToSearch,
+    reasoning,
+  }
+
+  try {
+    const jsonMatch = briefRaw.match(/\{[\s\S]*\}/)
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]) as Partial<CreativeBrief>
+      creativeBrief = { ...creativeBrief, ...parsed }
+    }
+  } catch {
+    // Keep defaults
+  }
 
   return {
     toolCalls,
     toolResults,
-    researchSummary: researchSummary.trim(),
+    researchData: rawData,
+    creativeBrief,
     selectedTopics,
+    usedSearch: decideToSearch && toolCalls.length > 0,
   }
 }

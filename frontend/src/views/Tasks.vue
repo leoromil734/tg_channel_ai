@@ -49,6 +49,7 @@
             <th class="text-left px-4 py-3 font-medium text-gray-600">频道</th>
             <th class="text-left px-4 py-3 font-medium text-gray-600">触发</th>
             <th class="text-left px-4 py-3 font-medium text-gray-600">状态</th>
+            <th class="text-left px-4 py-3 font-medium text-gray-600">当前步骤</th>
             <th class="text-left px-4 py-3 font-medium text-gray-600">创建时间</th>
             <th class="text-left px-4 py-3 font-medium text-gray-600">耗时</th>
             <th class="px-4 py-3"></th>
@@ -56,7 +57,10 @@
         </thead>
         <tbody class="divide-y divide-gray-50">
           <template v-for="task in tasks" :key="task.id">
-            <tr class="hover:bg-gray-50 cursor-pointer" @click="toggleExpand(task.id)">
+            <tr
+              class="hover:bg-gray-50 cursor-pointer"
+              @click="toggleExpand(task.id)"
+            >
               <td class="px-4 py-3 text-gray-400 font-mono">#{{ task.id }}</td>
               <td class="px-4 py-3 font-medium text-gray-800">{{ task.channelName || `#${task.channelId}` }}</td>
               <td class="px-4 py-3 text-gray-500">{{ triggerLabel(task.triggerType) }}</td>
@@ -66,31 +70,28 @@
                   <span v-if="task.status === 'running'" class="w-3 h-3 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin"></span>
                 </div>
               </td>
+              <td class="px-4 py-3">
+                <span v-if="task.currentStep" class="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded font-mono">
+                  {{ stepLabel(task.currentStep) }}
+                </span>
+                <span v-else class="text-gray-300">-</span>
+              </td>
               <td class="px-4 py-3 text-gray-400">{{ formatTime(task.createdAt) }}</td>
               <td class="px-4 py-3 text-gray-400">{{ calcDuration(task.createdAt, task.completedAt) }}</td>
               <td class="px-4 py-3 text-gray-400 text-right">
                 <span class="text-xs">{{ expandedId === task.id ? '▲' : '▼' }}</span>
               </td>
             </tr>
-            <!-- Expanded logs row -->
+
+            <!-- Expanded: workflow progress diagram -->
             <tr v-if="expandedId === task.id">
-              <td colspan="7" class="bg-gray-900 px-4 py-3">
-                <div v-if="logsLoading" class="text-gray-400 text-xs py-2">加载日志...</div>
-                <div v-else-if="expandedLogs.length === 0" class="text-gray-400 text-xs py-2">暂无日志</div>
-                <div v-else class="font-mono text-xs space-y-1 max-h-60 overflow-y-auto">
-                  <div
-                    v-for="log in expandedLogs"
-                    :key="log.id"
-                    class="flex gap-3"
-                    :class="log.level === 'error' ? 'text-red-400' : log.level === 'warn' ? 'text-yellow-400' : 'text-green-300'"
-                  >
-                    <span class="text-gray-500 flex-shrink-0">{{ log.createdAt?.split('T')[1]?.slice(0, 8) }}</span>
-                    <span class="uppercase flex-shrink-0">{{ log.level }}</span>
-                    <span>{{ log.message }}</span>
-                  </div>
-                </div>
-                <div v-if="task.errorMessage" class="mt-2 text-red-400 text-xs font-mono">
-                  Error: {{ task.errorMessage }}
+              <td colspan="8" class="bg-gray-50 px-6 py-5 border-b border-gray-100">
+                <div v-if="progressLoading" class="text-gray-400 text-sm py-4 text-center">加载工作流进度...</div>
+                <WorkflowProgress v-else-if="expandedProgress" :progress="expandedProgress" />
+                <div v-else class="text-gray-400 text-sm py-2">暂无进度数据</div>
+
+                <div v-if="task.errorMessage" class="mt-3 text-red-500 text-xs font-mono bg-red-50 px-3 py-2 rounded">
+                  错误: {{ task.errorMessage }}
                 </div>
               </td>
             </tr>
@@ -105,7 +106,8 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useChannelsStore } from '../stores/channels.js'
 import { useTasksStore } from '../stores/tasks.js'
-import { tasksApi, type TaskLog } from '../api/index.js'
+import { tasksApi, type TaskProgress } from '../api/index.js'
+import WorkflowProgress from '../components/WorkflowProgress.vue'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime.js'
 import 'dayjs/locale/zh-cn.js'
@@ -126,8 +128,11 @@ const filterStatus = ref('')
 const filterDate = ref('')
 const autoRefresh = ref(true)
 const expandedId = ref<number | null>(null)
-const expandedLogs = ref<TaskLog[]>([])
-const logsLoading = ref(false)
+const expandedProgress = ref<TaskProgress | null>(null)
+const progressLoading = ref(false)
+
+// Polling for running task progress
+let progressTimer: ReturnType<typeof setInterval> | null = null
 
 const statItems = computed(() => [
   { label: '成功', value: stats.value.done, color: 'text-green-600' },
@@ -145,21 +150,83 @@ async function loadTasks() {
   await tasksStore.fetchStats()
 }
 
+async function loadProgress(taskId: number) {
+  try {
+    const res = await tasksApi.getProgress(taskId)
+    expandedProgress.value = res.data
+  } catch {
+    expandedProgress.value = null
+  }
+}
+
 async function toggleExpand(taskId: number) {
   if (expandedId.value === taskId) {
     expandedId.value = null
-    expandedLogs.value = []
+    expandedProgress.value = null
+    stopProgressPolling()
     return
   }
+
   expandedId.value = taskId
-  expandedLogs.value = []
-  logsLoading.value = true
+  expandedProgress.value = null
+  progressLoading.value = true
+  stopProgressPolling()
+
   try {
-    const res = await tasksApi.getLogs(taskId)
-    expandedLogs.value = res.data
+    await loadProgress(taskId)
   } finally {
-    logsLoading.value = false
+    progressLoading.value = false
   }
+
+  // If task is running, start polling
+  const task = tasks.value.find((t) => t.id === taskId)
+  if (task?.status === 'running') {
+    startProgressPolling(taskId)
+  }
+}
+
+function startProgressPolling(taskId: number) {
+  progressTimer = setInterval(async () => {
+    await loadProgress(taskId)
+    // Stop polling when task finishes
+    if (expandedProgress.value?.task?.status !== 'running') {
+      stopProgressPolling()
+      await loadTasks() // refresh task list
+    }
+  }, 2000)
+}
+
+function stopProgressPolling() {
+  if (progressTimer) {
+    clearInterval(progressTimer)
+    progressTimer = null
+  }
+}
+
+// If we expand a task and it starts running (e.g., was just triggered), begin polling
+watch(
+  () => tasks.value.find((t) => t.id === expandedId.value)?.status,
+  (newStatus) => {
+    if (newStatus === 'running' && expandedId.value && !progressTimer) {
+      startProgressPolling(expandedId.value)
+    }
+  },
+)
+
+const STEP_LABELS: Record<string, string> = {
+  brain: '🧠 大脑决策',
+  researcher: '🔍 信息研究',
+  writer: '✍️ 内容创作',
+  reviewer: '🔎 审校优化',
+  prompter: '🎨 提示词',
+  illustrator: '🖼️ 生图',
+  publishing: '📤 发布',
+  done: '✅ 完成',
+  failed: '❌ 失败',
+}
+
+function stepLabel(step: string): string {
+  return STEP_LABELS[step] ?? step
 }
 
 function statusBadge(s: string) {
@@ -184,16 +251,19 @@ function calcDuration(start: string, end?: string | null) {
   return `${Math.floor(ms / 60000)}m${Math.floor((ms % 60000) / 1000)}s`
 }
 
-let timer: ReturnType<typeof setInterval>
+let listTimer: ReturnType<typeof setInterval>
 watch(autoRefresh, (val) => {
-  if (val) timer = setInterval(loadTasks, 5000)
-  else clearInterval(timer)
+  if (val) listTimer = setInterval(loadTasks, 5000)
+  else clearInterval(listTimer)
 })
 
 onMounted(async () => {
   await channelsStore.fetchChannels()
   await loadTasks()
-  if (autoRefresh.value) timer = setInterval(loadTasks, 5000)
+  if (autoRefresh.value) listTimer = setInterval(loadTasks, 5000)
 })
-onUnmounted(() => clearInterval(timer))
+onUnmounted(() => {
+  clearInterval(listTimer)
+  stopProgressPolling()
+})
 </script>

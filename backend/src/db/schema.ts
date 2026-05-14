@@ -68,6 +68,7 @@ export const tasks = sqliteTable('tasks', {
   channelId: integer('channel_id').notNull().references(() => channels.id, { onDelete: 'cascade' }),
   status: text('status', { enum: ['pending', 'running', 'done', 'failed'] }).default('pending'),
   triggerType: text('trigger_type', { enum: ['auto', 'manual', 'preview'] }).default('manual'),
+  currentStep: text('current_step').default(''),
   errorMessage: text('error_message'),
   createdAt: text('created_at').default(sql`(datetime('now'))`),
   completedAt: text('completed_at'),

@@ -48,15 +48,32 @@ export interface PipelineConfig {
   language: string
 }
 
+export type PipelineStepName =
+  | 'brain' | 'researcher' | 'writer' | 'reviewer' | 'prompter' | 'illustrator' | 'publishing' | 'done' | 'failed'
+
 export interface Task {
   id: number
   channelId: number
   channelName?: string
   status: 'pending' | 'running' | 'done' | 'failed'
   triggerType: 'auto' | 'manual' | 'preview'
+  currentStep?: PipelineStepName | string
   errorMessage?: string
   createdAt: string
   completedAt?: string
+}
+
+export interface TaskProgressNode {
+  stepType: StepType
+  stepOrder: number
+  model: string
+  isEnabled: boolean
+}
+
+export interface TaskProgress {
+  task: Task
+  nodes: TaskProgressNode[]
+  logs: TaskLog[]
 }
 
 export interface TaskLog {
@@ -134,6 +151,7 @@ export const tasksApi = {
     api.get<Task[]>('/tasks', { params }),
   get: (id: number) => api.get<Task>(`/tasks/${id}`),
   getLogs: (id: number) => api.get<TaskLog[]>(`/tasks/${id}/logs`),
+  getProgress: (id: number) => api.get<TaskProgress>(`/tasks/${id}/progress`),
   stats: () => api.get<TaskStats>('/tasks/stats/today'),
 }
 

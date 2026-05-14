@@ -65,10 +65,12 @@ const migrate = () => {
       channel_id INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
       status TEXT DEFAULT 'pending' CHECK(status IN ('pending','running','done','failed')),
       trigger_type TEXT DEFAULT 'manual' CHECK(trigger_type IN ('auto','manual','preview')),
+      current_step TEXT DEFAULT '',
       error_message TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       completed_at TEXT
     );
+
 
     CREATE TABLE IF NOT EXISTS task_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,6 +94,14 @@ const migrate = () => {
       created_at TEXT DEFAULT (datetime('now'))
     );
   `)
+  // Add columns introduced after initial schema (safe to run on existing DBs)
+  const alterations = [
+    `ALTER TABLE tasks ADD COLUMN current_step TEXT DEFAULT ''`,
+  ]
+  for (const stmt of alterations) {
+    try { sqlite.exec(stmt) } catch { /* column already exists */ }
+  }
+
   console.log('Database migration completed.')
 }
 
