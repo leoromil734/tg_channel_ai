@@ -99,7 +99,7 @@
                       type="number"
                       :value="getNode(step.type)?.maxTokens ?? 2048"
                       @input="updateNodeField(step.type, 'maxTokens', parseInt(($event.target as HTMLInputElement).value))"
-                      min="100" max="32000" step="100"
+                      min="100" max="200000" step="100"
                       class="w-full text-xs rounded border-gray-300 py-1"
                     />
                   </div>

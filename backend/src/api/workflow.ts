@@ -12,7 +12,7 @@ const nodeSchema = z.object({
   model: z.string().default(''),
   systemPrompt: z.string().default(''),
   temperature: z.number().min(0).max(2).default(0.8),
-  maxTokens: z.number().int().min(1).max(32000).default(2048),
+  maxTokens: z.number().int().min(1).max(200000).default(2048),
   isEnabled: z.boolean().default(true),
 })
 
