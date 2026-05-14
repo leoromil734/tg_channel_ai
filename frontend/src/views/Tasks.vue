@@ -23,11 +23,13 @@
         <label class="label mb-0 mr-2 inline">日期：</label>
         <input type="date" v-model="filterDate" class="input w-44" @change="loadTasks" />
       </div>
-      <button @click="loadTasks" class="btn-secondary btn-sm ml-auto">刷新</button>
-      <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-        <input type="checkbox" v-model="autoRefresh" class="rounded" />
-        自动刷新
-      </label>
+      <div class="ml-auto flex items-center gap-3">
+        <span class="flex items-center gap-1.5 text-xs" :class="connected ? 'text-green-600' : 'text-gray-400'">
+          <span class="w-2 h-2 rounded-full" :class="connected ? 'bg-green-500 animate-pulse' : 'bg-gray-300'"></span>
+          {{ connected ? '实时' : '断线' }}
+        </span>
+        <button @click="loadTasks" class="btn-secondary btn-sm">刷新</button>
+      </div>
     </div>
 
     <!-- Today stats bar -->
@@ -103,11 +105,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useChannelsStore } from '../stores/channels.js'
 import { useTasksStore } from '../stores/tasks.js'
 import { tasksApi, type TaskProgress } from '../api/index.js'
 import WorkflowProgress from '../components/WorkflowProgress.vue'
+import { useTaskEvents, type SSETaskEvent } from '../composables/useTaskEvents.js'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime.js'
 import 'dayjs/locale/zh-cn.js'
@@ -126,13 +129,9 @@ const loading = computed(() => tasksStore.loading)
 const filterChannelId = ref<number | ''>('')
 const filterStatus = ref('')
 const filterDate = ref('')
-const autoRefresh = ref(true)
 const expandedId = ref<number | null>(null)
 const expandedProgress = ref<TaskProgress | null>(null)
 const progressLoading = ref(false)
-
-// Polling for running task progress
-let progressTimer: ReturnType<typeof setInterval> | null = null
 
 const statItems = computed(() => [
   { label: '成功', value: stats.value.done, color: 'text-green-600' },
@@ -140,6 +139,42 @@ const statItems = computed(() => [
   { label: '运行中', value: stats.value.running, color: 'text-yellow-600' },
   { label: '等待', value: stats.value.pending, color: 'text-gray-600' },
 ])
+
+// ─── SSE real-time updates ─────────────────────────────────────────────────
+const { connected } = useTaskEvents(async (event: SSETaskEvent) => {
+  if (event.type === 'task:update') {
+    // Update the specific task row in-place
+    tasksStore.patchTask(event.taskId, {
+      status: event.status,
+      currentStep: event.currentStep,
+      errorMessage: event.errorMessage,
+    })
+    // Refresh expanded progress if this task is open
+    if (expandedId.value === event.taskId) {
+      await loadProgress(event.taskId)
+    }
+  }
+  if (event.type === 'task:log' && expandedId.value === event.taskId) {
+    // Append log to expanded progress without full reload
+    if (expandedProgress.value) {
+      expandedProgress.value = {
+        ...expandedProgress.value,
+        logs: [...(expandedProgress.value.logs ?? []), {
+          id: Date.now(),
+          taskId: event.taskId,
+          level: event.level as 'info' | 'warn' | 'error',
+          message: event.message,
+          createdAt: event.timestamp,
+        }],
+      }
+    }
+  }
+  if (event.type === 'task:stats') {
+    await tasksStore.fetchStats()
+    // If a new task appeared (status change may mean new task), reload list
+    await loadTasks()
+  }
+})
 
 async function loadTasks() {
   const params: Record<string, string | number> = {}
@@ -163,55 +198,17 @@ async function toggleExpand(taskId: number) {
   if (expandedId.value === taskId) {
     expandedId.value = null
     expandedProgress.value = null
-    stopProgressPolling()
     return
   }
-
   expandedId.value = taskId
   expandedProgress.value = null
   progressLoading.value = true
-  stopProgressPolling()
-
   try {
     await loadProgress(taskId)
   } finally {
     progressLoading.value = false
   }
-
-  // If task is running, start polling
-  const task = tasks.value.find((t) => t.id === taskId)
-  if (task?.status === 'running') {
-    startProgressPolling(taskId)
-  }
 }
-
-function startProgressPolling(taskId: number) {
-  progressTimer = setInterval(async () => {
-    await loadProgress(taskId)
-    // Stop polling when task finishes
-    if (expandedProgress.value?.task?.status !== 'running') {
-      stopProgressPolling()
-      await loadTasks() // refresh task list
-    }
-  }, 2000)
-}
-
-function stopProgressPolling() {
-  if (progressTimer) {
-    clearInterval(progressTimer)
-    progressTimer = null
-  }
-}
-
-// If we expand a task and it starts running (e.g., was just triggered), begin polling
-watch(
-  () => tasks.value.find((t) => t.id === expandedId.value)?.status,
-  (newStatus) => {
-    if (newStatus === 'running' && expandedId.value && !progressTimer) {
-      startProgressPolling(expandedId.value)
-    }
-  },
-)
 
 const STEP_LABELS: Record<string, string> = {
   brain: '🧠 大脑决策',
@@ -225,10 +222,7 @@ const STEP_LABELS: Record<string, string> = {
   failed: '❌ 失败',
 }
 
-function stepLabel(step: string): string {
-  return STEP_LABELS[step] ?? step
-}
-
+function stepLabel(step: string): string { return STEP_LABELS[step] ?? step }
 function statusBadge(s: string) {
   const m: Record<string, string> = { done: 'badge-green', failed: 'badge-red', running: 'badge-yellow', pending: 'badge-gray' }
   return m[s] ?? 'badge-gray'
@@ -241,9 +235,7 @@ function triggerLabel(t: string) {
   const m: Record<string, string> = { auto: '自动', manual: '手动', preview: '预览' }
   return m[t] ?? t
 }
-function formatTime(t: string) {
-  return dayjs(t).format('MM-DD HH:mm:ss')
-}
+function formatTime(t: string) { return dayjs(t).format('MM-DD HH:mm:ss') }
 function calcDuration(start: string, end?: string | null) {
   if (!end) return '-'
   const ms = dayjs(end).diff(dayjs(start))
@@ -251,19 +243,8 @@ function calcDuration(start: string, end?: string | null) {
   return `${Math.floor(ms / 60000)}m${Math.floor((ms % 60000) / 1000)}s`
 }
 
-let listTimer: ReturnType<typeof setInterval>
-watch(autoRefresh, (val) => {
-  if (val) listTimer = setInterval(loadTasks, 5000)
-  else clearInterval(listTimer)
-})
-
 onMounted(async () => {
   await channelsStore.fetchChannels()
   await loadTasks()
-  if (autoRefresh.value) listTimer = setInterval(loadTasks, 5000)
-})
-onUnmounted(() => {
-  clearInterval(listTimer)
-  stopProgressPolling()
 })
 </script>

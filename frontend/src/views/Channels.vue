@@ -277,8 +277,9 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useChannelsStore } from '../stores/channels.js'
-import { channelsApi, providersApi, pipelineApi, tasksApi, type Channel, type AiProvider } from '../api/index.js'
+import { channelsApi, providersApi, pipelineApi, type Channel, type AiProvider } from '../api/index.js'
 import WorkflowEditor from '../components/WorkflowEditor.vue'
+import { useTaskEvents, type SSETaskEvent } from '../composables/useTaskEvents.js'
 
 const store = useChannelsStore()
 const channels = computed(() => store.channels)
@@ -388,50 +389,34 @@ async function confirmDelete(ch: Channel) {
   await store.deleteChannel(ch.id)
 }
 
-/** Poll a task until it finishes, then return it */
-async function pollTask(taskId: number, timeoutMs = 300000): Promise<import('../api/index.js').Task> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 2500))
-    const res = await tasksApi.get(taskId)
-    const t = res.data
-    if (t.status === 'done' || t.status === 'failed') return t
-  }
-  throw new Error('任务超时（5 分钟）')
-}
+// Track which task belongs to which channel so SSE can resolve them
+const runningTaskMap = ref<Map<number, number>>(new Map()) // taskId → channelId
+const previewTaskMap = ref<Map<number, number>>(new Map())  // taskId → channelId
 
-async function triggerRun(channelId: number) {
-  runningIds.value = new Set([...runningIds.value, channelId])
-  try {
-    const res = await pipelineApi.run(channelId)
-    const { taskId } = res.data
-    const task = await pollTask(taskId)
-    if (task.status === 'failed') {
-      alert(`发布失败：${task.errorMessage || '未知错误'}`)
-    } else {
-      alert('内容发布成功！')
-    }
-  } catch (err) {
-    alert(`失败：${(err as Error).message}`)
-  } finally {
-    const next = new Set(runningIds.value); next.delete(channelId); runningIds.value = next
-  }
-}
+// SSE: react to task completion events instead of polling
+useTaskEvents(async (event: SSETaskEvent) => {
+  if (event.type !== 'task:update') return
+  const { taskId, status, errorMessage } = event
 
-async function triggerPreview(channelId: number) {
-  previewIds.value = new Set([...previewIds.value, channelId])
-  try {
-    const res = await pipelineApi.run(channelId, true)
-    const { taskId } = res.data
-    // Poll until done, then fetch content history for the preview result
-    const task = await pollTask(taskId)
-    if (task.status === 'failed') {
-      alert(`预览失败：${task.errorMessage || '未知错误'}`)
+  const runChannelId = runningTaskMap.value.get(taskId)
+  if (runChannelId !== undefined && (status === 'done' || status === 'failed')) {
+    runningTaskMap.value.delete(taskId)
+    const next = new Set(runningIds.value); next.delete(runChannelId); runningIds.value = next
+    if (status === 'failed') alert(`发布失败：${errorMessage || '未知错误'}`)
+    else alert('内容发布成功！')
+  }
+
+  const previewChannelId = previewTaskMap.value.get(taskId)
+  if (previewChannelId !== undefined && (status === 'done' || status === 'failed')) {
+    previewTaskMap.value.delete(taskId)
+    const next = new Set(previewIds.value); next.delete(previewChannelId); previewIds.value = next
+    if (status === 'failed') {
+      alert(`预览失败：${errorMessage || '未知错误'}`)
       return
     }
-    // Fetch the preview result from content history
+    // Load preview result from content history
     const { contentApi } = await import('../api/index.js')
-    const histRes = await contentApi.list({ channelId, limit: 1 })
+    const histRes = await contentApi.list({ channelId: previewChannelId, limit: 1 })
     const latest = histRes.data[0]
     if (latest) {
       previewResult.value = {
@@ -441,9 +426,30 @@ async function triggerPreview(channelId: number) {
         searchKeywords: latest.searchKeywords,
       }
     }
+  }
+})
+
+async function triggerRun(channelId: number) {
+  runningIds.value = new Set([...runningIds.value, channelId])
+  try {
+    const res = await pipelineApi.run(channelId)
+    const { taskId } = res.data
+    // Track taskId → channelId; SSE will clear it when done
+    runningTaskMap.value = new Map([...runningTaskMap.value, [taskId, channelId]])
   } catch (err) {
-    alert(`预览失败：${(err as Error).message}`)
-  } finally {
+    alert(`启动失败：${(err as Error).message}`)
+    const next = new Set(runningIds.value); next.delete(channelId); runningIds.value = next
+  }
+}
+
+async function triggerPreview(channelId: number) {
+  previewIds.value = new Set([...previewIds.value, channelId])
+  try {
+    const res = await pipelineApi.run(channelId, true)
+    const { taskId } = res.data
+    previewTaskMap.value = new Map([...previewTaskMap.value, [taskId, channelId]])
+  } catch (err) {
+    alert(`启动失败：${(err as Error).message}`)
     const next = new Set(previewIds.value); next.delete(channelId); previewIds.value = next
   }
 }

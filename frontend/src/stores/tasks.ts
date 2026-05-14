@@ -22,5 +22,13 @@ export const useTasksStore = defineStore('tasks', () => {
     stats.value = res.data
   }
 
-  return { tasks, stats, loading, fetchTasks, fetchStats }
+  /** Patch a single task's fields in-place without a full reload */
+  function patchTask(taskId: number, fields: Partial<Task>) {
+    const idx = tasks.value.findIndex((t) => t.id === taskId)
+    if (idx !== -1) {
+      tasks.value[idx] = { ...tasks.value[idx], ...fields }
+    }
+  }
+
+  return { tasks, stats, loading, fetchTasks, fetchStats, patchTask }
 })

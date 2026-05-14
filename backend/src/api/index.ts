@@ -27,6 +27,8 @@ export function createApp() {
 
   app.use('/*', async (c, next) => {
     if (c.req.path === '/health') return next()
+    // SSE endpoint uses ?token= query param instead of Authorization header
+    if (c.req.path === '/tasks/events') return next()
     const secret = process.env.API_SECRET
     if (secret) {
       const auth = c.req.header('Authorization')

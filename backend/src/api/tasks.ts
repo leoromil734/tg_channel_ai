@@ -1,7 +1,10 @@
 import { Hono } from 'hono'
+import { streamSSE } from 'hono/streaming'
 import { db } from '../db/index.js'
 import { tasks, taskLogs, channels, workflowNodes } from '../db/schema.js'
 import { eq, desc, gte, and, type SQL } from 'drizzle-orm'
+import { taskBus } from '../events/bus.js'
+import type { TaskEvent } from '../events/bus.js'
 
 export const tasksRouter = new Hono()
 
@@ -133,4 +136,49 @@ tasksRouter.get('/:id/progress', async (c) => {
     .orderBy(taskLogs.createdAt)
 
   return c.json({ task, nodes, logs })
+})
+
+/**
+ * GET /tasks/events?token=...
+ * SSE stream for real-time task updates.
+ * Uses query token because EventSource doesn't support custom headers.
+ */
+tasksRouter.get('/events', async (c) => {
+  // Auth via query param (SSE cannot send Authorization header)
+  const token = c.req.query('token')
+  const secret = process.env.API_SECRET
+  if (secret && token !== secret) {
+    return c.json({ error: 'Unauthorized' }, 401)
+  }
+
+  return streamSSE(c, async (stream) => {
+    // Send initial ping to confirm connection
+    await stream.writeSSE({ event: 'ping', data: 'connected' })
+
+    const handler = (event: TaskEvent) => {
+      stream.writeSSE({
+        event: event.type,
+        data: JSON.stringify(event),
+      }).catch(() => { /* client disconnected */ })
+    }
+
+    taskBus.on('task', handler)
+
+    // Keepalive every 25s to prevent nginx/proxy from closing idle connections
+    let alive = true
+    stream.onAbort(() => {
+      alive = false
+      taskBus.off('task', handler)
+    })
+
+    while (alive) {
+      await stream.sleep(25000)
+      if (!alive) break
+      await stream.writeSSE({ event: 'ping', data: Date.now().toString() }).catch(() => {
+        alive = false
+      })
+    }
+
+    taskBus.off('task', handler)
+  })
 })

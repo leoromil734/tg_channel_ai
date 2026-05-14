@@ -10,6 +10,7 @@ import { runIllustrator } from './agents/illustrator.js'
 import { runReviewer } from './agents/reviewer.js'
 import type { AIProvider } from '../providers/types.js'
 import type { Bot } from 'grammy'
+import { taskBus } from '../events/bus.js'
 
 export interface PipelineResult {
   textContent: string
@@ -46,10 +47,12 @@ interface LoadedNode {
 async function addLog(taskId: number, level: 'info' | 'warn' | 'error', message: string) {
   await db.insert(taskLogs).values({ taskId, level, message })
   console.log(`[Task ${taskId}] [${level.toUpperCase()}] ${message}`)
+  taskBus.emitLog(taskId, level, message)
 }
 
-async function setStep(taskId: number, step: PipelineStepName) {
+async function setStep(taskId: number, step: PipelineStepName, channelId?: number) {
   await db.update(tasks).set({ currentStep: step }).where(eq(tasks.id, taskId))
+  taskBus.emitUpdate({ taskId, channelId: channelId ?? 0, status: 'running', currentStep: step })
 }
 
 async function loadWorkflowNodes(channelId: number): Promise<Map<StepType, LoadedNode>> {
@@ -166,7 +169,7 @@ async function runPipelineCore(
     let creativeBrief: CreativeBrief | undefined
     let usedSearch = false
 
-    await setStep(taskId, 'brain')
+    await setStep(taskId, 'brain', channelId)
 
     if (brainNode) {
       await addLog(taskId, 'info', `🧠 Brain [${brainNode.provider.name}] 开始决策...`)
@@ -206,7 +209,7 @@ async function runPipelineCore(
     // ─── STEP 2: Researcher (fallback if no brain) ────────────────────────────
     const researcherNode = pickNode(nodeMap, 'researcher', [])
     if (!brainNode && researcherNode && config?.searchEnabled !== false) {
-      await setStep(taskId, 'researcher')
+      await setStep(taskId, 'researcher', channelId)
       await addLog(taskId, 'info', `🔍 Researcher [${researcherNode.provider.name}] 运行中...`)
       try {
         const research = await runResearcher(
@@ -226,7 +229,7 @@ async function runPipelineCore(
     }
 
     // ─── STEP 3: Write ────────────────────────────────────────────────────────
-    await setStep(taskId, 'writer')
+    await setStep(taskId, 'writer', channelId)
     const writerNode = pickNode(nodeMap, 'writer', ['brain'])
     if (!writerNode) throw new Error('No writer or brain node configured.')
 
@@ -250,7 +253,7 @@ async function runPipelineCore(
 
     const reviewerNode = nodeMap.get('reviewer')
     if (reviewerNode) {
-      await setStep(taskId, 'reviewer')
+      await setStep(taskId, 'reviewer', channelId)
       await addLog(taskId, 'info', `🔎 Reviewer [${reviewerNode.provider.name}] 审校中...`)
       for (let attempt = 1; attempt <= 2; attempt++) {
         try {
@@ -291,7 +294,7 @@ async function runPipelineCore(
       const prompterNode = pickNode(nodeMap, 'prompter', ['brain', 'writer'])
 
       if (prompterNode) {
-        await setStep(taskId, 'prompter')
+        await setStep(taskId, 'prompter', channelId)
         await addLog(taskId, 'info', `🎨 Prompter [${prompterNode.provider.name}] 生成图片提示词...`)
         try {
           const prompterResult = await runPrompter(
@@ -310,7 +313,7 @@ async function runPipelineCore(
             if (!illustratorNode.provider.supportsImages) {
               await addLog(taskId, 'warn', `${illustratorNode.provider.name} 不支持图片生成，跳过`)
             } else {
-              await setStep(taskId, 'illustrator')
+              await setStep(taskId, 'illustrator', channelId)
               await addLog(taskId, 'info', `🖼️ Illustrator [${illustratorNode.provider.name}] 绘图中...`)
               const illResult = await runIllustrator(imagePrompt, illustratorNode.provider)
               imageUrl = illResult.imageUrl
@@ -330,7 +333,7 @@ async function runPipelineCore(
     // ─── STEP 7: Publish ──────────────────────────────────────────────────────
     let tgMessageId: string | undefined
     if (triggerType !== 'preview' && bot) {
-      await setStep(taskId, 'publishing')
+      await setStep(taskId, 'publishing', channelId)
       await addLog(taskId, 'info', `📤 发布到 ${channel.tgChannelId}...`)
       try {
         tgMessageId = await publishToTelegram(bot, channel.tgChannelId, finalContent, imageUrl)
@@ -353,20 +356,24 @@ async function runPipelineCore(
       isPreview: triggerType === 'preview',
     })
 
-    await setStep(taskId, 'done')
+    await setStep(taskId, 'done', channelId)
     await db.update(tasks)
       .set({ status: 'done', completedAt: new Date().toISOString() })
       .where(eq(tasks.id, taskId))
     await addLog(taskId, 'info', `✅ Pipeline 完成。使用工具: [${toolsUsed.join(', ') || '无（自主创作）'}]`)
+    taskBus.emitUpdate({ taskId, channelId, status: 'done', currentStep: 'done' })
+    taskBus.emitStats()
 
     return { textContent: finalContent, imageUrl, imagePrompt, searchKeywords: keywords.join(', '), tgMessageId, reviewSuggestions, toolsUsed, usedSearch }
   } catch (err) {
     const message = (err as Error).message
-    await setStep(taskId, 'failed')
+    await setStep(taskId, 'failed', channelId)
     await db.update(tasks)
       .set({ status: 'failed', errorMessage: message, completedAt: new Date().toISOString() })
       .where(eq(tasks.id, taskId))
     await addLog(taskId, 'error', `Pipeline 失败: ${message}`)
+    taskBus.emitUpdate({ taskId, channelId, status: 'failed', currentStep: 'failed', errorMessage: message })
+    taskBus.emitStats()
     throw err
   }
 }
