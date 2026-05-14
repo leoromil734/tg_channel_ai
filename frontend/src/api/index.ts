@@ -138,6 +138,8 @@ export interface TaskStats {
 export const channelsApi = {
   list: () => api.get<Channel[]>('/channels'),
   listPending: () => api.get<Channel[]>('/channels/pending'),
+  sync: (tgChannelId: string) =>
+    api.post<{ success?: boolean; already_exists?: boolean; channel: Channel }>('/channels/sync', { tgChannelId }),
   activate: (id: number, data?: Partial<Channel>) => api.post<Channel>(`/channels/${id}/activate`, data ?? {}),
   get: (id: number) => api.get<Channel>(`/channels/${id}`),
   create: (data: Partial<Channel>) => api.post<Channel>('/channels', data),

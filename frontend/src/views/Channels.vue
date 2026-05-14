@@ -8,6 +8,25 @@
       <button @click="openCreate" class="btn-primary">+ 添加频道</button>
     </div>
 
+    <!-- Manual sync card -->
+    <div class="card p-4">
+      <div class="text-sm font-medium text-gray-700 mb-3">📡 同步已加入的频道</div>
+      <p class="text-xs text-gray-500 mb-3">如果 Bot 已是频道管理员但未自动检测到，手动输入频道 ID 同步</p>
+      <div class="flex gap-2">
+        <input
+          v-model="syncInput"
+          class="input flex-1"
+          placeholder="@channelname 或 -100xxxxxxxx"
+          @keydown.enter="syncChannel"
+        />
+        <button @click="syncChannel" :disabled="syncing || !syncInput.trim()" class="btn-primary btn-sm px-4">
+          {{ syncing ? '检测中...' : '同步导入' }}
+        </button>
+      </div>
+      <div v-if="syncError" class="mt-2 text-red-500 text-xs">{{ syncError }}</div>
+      <div v-if="syncOk" class="mt-2 text-green-600 text-xs">{{ syncOk }}</div>
+    </div>
+
     <!-- Auto-discovered pending channels -->
     <div v-if="pendingChannels.length > 0" class="card border-l-4 border-yellow-400 overflow-hidden">
       <div class="px-5 py-3 bg-yellow-50 border-b border-yellow-100 flex items-center justify-between">
@@ -241,6 +260,10 @@ const loading = computed(() => store.loading)
 
 const pendingChannels = ref<Channel[]>([])
 const activatingIds = ref<Set<number>>(new Set())
+const syncInput = ref('')
+const syncing = ref(false)
+const syncError = ref('')
+const syncOk = ref('')
 
 const providers = ref<AiProvider[]>([])
 const workflowOpen = ref<Set<number>>(new Set())
@@ -346,6 +369,28 @@ async function triggerPreview(channelId: number) {
     alert(`预览失败：${(err as Error).message}`)
   } finally {
     const next = new Set(previewIds.value); next.delete(channelId); previewIds.value = next
+  }
+}
+
+async function syncChannel() {
+  if (!syncInput.value.trim()) return
+  syncing.value = true
+  syncError.value = ''
+  syncOk.value = ''
+  try {
+    const res = await channelsApi.sync(syncInput.value.trim())
+    if (res.data.already_exists) {
+      syncOk.value = `频道已存在：${res.data.channel.name}`
+    } else {
+      syncOk.value = `✅ 同步成功：${res.data.channel.name}，请在下方待配置列表启用`
+      syncInput.value = ''
+      await loadPending()
+    }
+  } catch (err: unknown) {
+    const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+    syncError.value = msg ?? (err as Error).message ?? '同步失败'
+  } finally {
+    syncing.value = false
   }
 }
 

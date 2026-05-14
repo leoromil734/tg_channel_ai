@@ -3,6 +3,7 @@ import { db } from '../db/index.js'
 import { channels, pipelineConfigs } from '../db/schema.js'
 import { eq, type SQL } from 'drizzle-orm'
 import { z } from 'zod'
+import { getBotInstance } from './pipeline.js'
 
 const channelSchema = z.object({
   tgChannelId: z.string().min(1),
@@ -123,6 +124,64 @@ channelsRouter.get('/:id/config', async (c) => {
   const rows = await db.select().from(pipelineConfigs).where(eq(pipelineConfigs.channelId, id)).limit(1)
   if (!rows[0]) return c.json({ error: 'Not found' }, 404)
   return c.json(rows[0])
+})
+
+/**
+ * POST /channels/sync
+ * Manually register a channel where the bot is already an admin.
+ * Body: { tgChannelId: "@username" | "-100xxxxxxxx" }
+ */
+channelsRouter.post('/sync', async (c) => {
+  const body = await c.req.json().catch(() => ({})) as { tgChannelId?: string }
+  const raw = (body.tgChannelId ?? '').trim()
+  if (!raw) return c.json({ error: 'tgChannelId is required' }, 400)
+
+  const tgChannelId = raw.startsWith('@') || raw.startsWith('-') ? raw : `@${raw}`
+
+  const bot = getBotInstance()
+  if (!bot) return c.json({ error: 'Bot not initialized' }, 503)
+
+  // Fetch chat info from Telegram
+  let chatInfo: Awaited<ReturnType<typeof bot.api.getChat>>
+  try {
+    chatInfo = await bot.api.getChat(tgChannelId)
+  } catch (err) {
+    return c.json({ error: `Cannot find channel: ${(err as Error).message}` }, 400)
+  }
+
+  // Verify bot is an admin
+  const botId = bot.botInfo.id
+  try {
+    const member = await bot.api.getChatMember(chatInfo.id, botId)
+    if (member.status !== 'administrator' && member.status !== 'creator') {
+      return c.json({ error: 'Bot is not an admin of this channel. Please promote the bot to admin first.' }, 403)
+    }
+  } catch (err) {
+    return c.json({ error: `Cannot verify bot membership: ${(err as Error).message}` }, 400)
+  }
+
+  const numericId = chatInfo.id.toString()
+  const title = 'title' in chatInfo ? chatInfo.title : tgChannelId
+  const description = 'description' in chatInfo ? (chatInfo.description ?? '') : ''
+
+  // Check if already exists
+  const existing = await db.select().from(channels).where(eq(channels.tgChannelId, numericId)).limit(1)
+  if (existing.length > 0) {
+    return c.json({ already_exists: true, channel: existing[0] })
+  }
+
+  // Register as inactive (pending confirmation in UI)
+  const [newChannel] = await db.insert(channels).values({
+    tgChannelId: numericId,
+    name: title,
+    description,
+    userIntro: '',
+    isActive: false,
+  }).returning()
+
+  await db.insert(pipelineConfigs).values({ channelId: newChannel.id })
+
+  return c.json({ success: true, channel: newChannel }, 201)
 })
 
 channelsRouter.put('/:id/config', async (c) => {

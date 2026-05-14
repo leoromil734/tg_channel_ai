@@ -12,6 +12,10 @@ export function setBotInstance(bot: import('grammy').Bot) {
   botInstance = bot
 }
 
+export function getBotInstance() {
+  return botInstance
+}
+
 pipelineRouter.post('/run/:channelId', async (c) => {
   const channelId = parseInt(c.req.param('channelId'), 10)
   const body = (await c.req.json().catch(() => ({}))) as { preview?: boolean }
