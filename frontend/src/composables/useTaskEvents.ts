@@ -16,7 +16,7 @@ const handlers = new Set<Handler>()
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
 function getToken() {
-  return localStorage.getItem('api_secret') ?? ''
+  return (localStorage.getItem('api_secret') ?? '').trim()
 }
 
 function broadcast(event: SSETaskEvent) {
