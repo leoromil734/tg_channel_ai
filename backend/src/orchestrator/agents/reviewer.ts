@@ -1,5 +1,6 @@
 import type { AIProvider } from '../../providers/types.js'
 import type { CreativeBrief } from './brain.js'
+import { extractJson } from '../utils.js'
 
 export interface ReviewerResult {
   finalContent: string
@@ -80,13 +81,8 @@ ${content}
   })
 
   try {
-    const jsonMatch = raw.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]) as {
-        approved: boolean
-        suggestions: string
-        finalContent: string
-      }
+    const parsed = extractJson<{ approved: boolean; suggestions: string; finalContent: string }>(raw)
+    if (parsed) {
       return {
         finalContent: parsed.finalContent?.trim() || content,
         suggestions: parsed.suggestions || '',

@@ -1,5 +1,6 @@
 import { getToolDescriptionText, executeTools, type ToolCall, type ToolResult } from '../../tools/registry.js'
 import type { AIProvider } from '../../providers/types.js'
+import { extractJson } from '../utils.js'
 
 export interface RecentPost {
   textContent: string
@@ -121,13 +122,8 @@ ${toolDocs}
   let decideToSearch = true
 
   try {
-    const jsonMatch = phase1Raw.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]) as {
-        reasoning?: string
-        selectedTopics?: string[]
-        toolCalls?: ToolCall[]
-      }
+    const parsed = extractJson<{ reasoning?: string; selectedTopics?: string[]; toolCalls?: ToolCall[] }>(phase1Raw)
+    if (parsed) {
       toolCalls = (parsed.toolCalls ?? []).slice(0, MAX_TOOL_CALLS)
       reasoning = parsed.reasoning ?? ''
       selectedTopics = parsed.selectedTopics ?? []
@@ -219,11 +215,8 @@ ${dataSection}
   }
 
   try {
-    const jsonMatch = briefRaw.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]) as Partial<CreativeBrief>
-      creativeBrief = { ...creativeBrief, ...parsed }
-    }
+    const parsed = extractJson<Partial<CreativeBrief>>(briefRaw)
+    if (parsed) creativeBrief = { ...creativeBrief, ...parsed }
   } catch {
     // Keep defaults
   }
