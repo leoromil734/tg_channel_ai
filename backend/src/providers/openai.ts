@@ -29,16 +29,33 @@ export class OpenAIProvider implements AIProvider {
 
   async generateText(userPrompt: string, options: GenerateTextOptions = {}): Promise<string> {
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = []
-    if (options.systemPrompt) messages.push({ role: 'system', content: options.systemPrompt })
+    if (options.[REDACTED]) messages.push({ role: 'system', content: options.[REDACTED] })
     messages.push({ role: 'user', content: userPrompt })
 
-    const res = await this.client.chat.completions.create({
-      model: this.model,
-      messages,
-      temperature: options.temperature ?? 0.8,
-      max_tokens: options.maxTokens ?? 2048,
-    })
-    return res.choices[0]?.message?.content ?? ''
+    console.log(`[OpenAIProvider] generateText with model: ${this.model}`)
+    console.log(`[OpenAIProvider] Request:`, JSON.stringify({ messages, temperature: options.temperature, max_tokens: options.maxTokens }, null, 2))
+
+    try {
+      const res = await this.client.chat.completions.create({
+        model: this.model,
+        messages,
+        temperature: options.temperature ?? 0.8,
+        max_tokens: options.maxTokens ?? 2048,
+      })
+
+      console.log(`[OpenAIProvider] Response:`, JSON.stringify(res, null, 2))
+      const content = res.choices[0]?.message?.content ?? ''
+      
+      if (!content || content.trim().length === 0) {
+        console.error(`[OpenAIProvider] API returned empty content. Full response:`, JSON.stringify(res, null, 2))
+        throw new Error(`OpenAI API returned empty content for model ${this.model}`)
+      }
+
+      return content
+    } catch (error) {
+      console.error(`[OpenAIProvider] generateText failed:`, error)
+      throw error
+    }
   }
 
   async generateImage(prompt: string, options: GenerateImageOptions = {}): Promise<string> {
@@ -123,7 +140,7 @@ export class OpenAIProvider implements AIProvider {
 
   async generatePrompt(topic: string, style: string, context?: string): Promise<string> {
     return this.generateText(buildPromptRequest(topic, style, context), {
-      systemPrompt: PROMPT_SYSTEM,
+      [REDACTED]: PROMPT_SYSTEM,
       temperature: 0.9,
       maxTokens: 120,   // Keep prompts short — many image proxies reject long prompts with 400
     })
