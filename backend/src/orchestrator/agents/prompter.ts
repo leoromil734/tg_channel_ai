@@ -32,7 +32,13 @@ export async function runPrompter(
     ? `频道「${channelName}」今天的内容是关于：${creativeBrief.topic}。图片概念：${conceptHint}`
     : `This image accompanies a post about: ${topic} for channel ${channelName} - ${channelDescription}`
 
+  console.log(`[Prompter] Generating prompt for: "${conceptHint}", style: "${style}"`)
   const imagePrompt = await promptProvider.generatePrompt(conceptHint, style, context)
+  console.log(`[Prompter] Generated prompt (${imagePrompt.length} chars): "${imagePrompt}"`)
+
+  if (!imagePrompt || imagePrompt.trim().length === 0) {
+    throw new Error('Prompter returned empty image prompt')
+  }
 
   return {
     imagePrompt: imagePrompt.trim(),

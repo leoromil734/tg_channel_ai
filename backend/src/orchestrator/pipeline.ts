@@ -306,21 +306,25 @@ async function runPipelineCore(
             creativeBrief,
           )
           imagePrompt = prompterResult.imagePrompt
-          await addLog(taskId, 'info', `图片提示词: "${imagePrompt.slice(0, 80)}..."`)
+          await addLog(taskId, 'info', `图片提示词: "${imagePrompt}"`)
 
-          const illustratorNode = nodeMap.get('illustrator')
-          if (illustratorNode) {
-            if (!illustratorNode.provider.supportsImages) {
-              await addLog(taskId, 'warn', `${illustratorNode.provider.name} 不支持图片生成，跳过`)
-            } else {
-              await setStep(taskId, 'illustrator', channelId)
-              await addLog(taskId, 'info', `🖼️ Illustrator [${illustratorNode.provider.name}] 绘图中...`)
-              const illResult = await runIllustrator(imagePrompt, illustratorNode.provider)
-              imageUrl = illResult.imageUrl
-              await addLog(taskId, 'info', '图片生成完成')
-            }
+          if (!imagePrompt || imagePrompt.trim().length === 0) {
+            await addLog(taskId, 'warn', 'Prompter 返回空提示词，跳过生图')
           } else {
-            await addLog(taskId, 'warn', '未配置 illustrator 节点，跳过生图')
+            const illustratorNode = nodeMap.get('illustrator')
+            if (illustratorNode) {
+              if (!illustratorNode.provider.supportsImages) {
+                await addLog(taskId, 'warn', `${illustratorNode.provider.name} 不支持图片生成，跳过`)
+              } else {
+                await setStep(taskId, 'illustrator', channelId)
+                await addLog(taskId, 'info', `🖼️ Illustrator [${illustratorNode.provider.name}] 绘图中...`)
+                const illResult = await runIllustrator(imagePrompt, illustratorNode.provider)
+                imageUrl = illResult.imageUrl
+                await addLog(taskId, 'info', '图片生成完成')
+              }
+            } else {
+              await addLog(taskId, 'warn', '未配置 illustrator 节点，跳过生图')
+            }
           }
         } catch (err) {
           await addLog(taskId, 'warn', `图片流程失败: ${(err as Error).message}`)
