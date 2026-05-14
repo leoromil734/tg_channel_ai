@@ -197,9 +197,14 @@ export const workflowApi = {
   deleteNode: (id: number) => api.delete(`/workflow/node/${id}`),
 }
 
+export interface PipelineRunResponse {
+  success: boolean
+  taskId: number
+}
+
 export const pipelineApi = {
   run: (channelId: number, preview = false) =>
-    api.post(`/pipeline/run/${channelId}`, { preview }),
+    api.post<PipelineRunResponse>(`/pipeline/run/${channelId}`, { preview }),
 }
 
 export default api

@@ -96,6 +96,9 @@ async function fetchRecentPosts(channelId: number, limit = 5): Promise<RecentPos
   return rows.map((r) => ({ textContent: r.textContent ?? '', createdAt: r.createdAt ?? '' }))
 }
 
+/**
+ * Called by the scheduler (auto) — creates its own task row.
+ */
 export async function runPipeline(
   channelId: number,
   triggerType: 'auto' | 'manual' | 'preview',
@@ -106,6 +109,31 @@ export async function runPipeline(
     .values({ channelId, triggerType, status: 'running', currentStep: 'brain' })
     .returning()
   const taskId = task.id
+  return runPipelineCore(taskId, channelId, triggerType, bot)
+}
+
+/**
+ * Called by the API after creating the task row up-front (async endpoint).
+ * Marks the task running and executes the pipeline.
+ */
+export async function runPipelineWithTask(
+  taskId: number,
+  channelId: number,
+  triggerType: 'auto' | 'manual' | 'preview',
+  bot?: Bot,
+): Promise<PipelineResult> {
+  await db.update(tasks)
+    .set({ status: 'running', currentStep: 'brain' })
+    .where(eq(tasks.id, taskId))
+  return runPipelineCore(taskId, channelId, triggerType, bot)
+}
+
+async function runPipelineCore(
+  taskId: number,
+  channelId: number,
+  triggerType: 'auto' | 'manual' | 'preview',
+  bot?: Bot,
+): Promise<PipelineResult> {
 
   try {
     const channelRows = await db.select().from(channels).where(eq(channels.id, channelId)).limit(1)

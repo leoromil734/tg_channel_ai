@@ -277,7 +277,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useChannelsStore } from '../stores/channels.js'
-import { channelsApi, providersApi, pipelineApi, type Channel, type AiProvider } from '../api/index.js'
+import { channelsApi, providersApi, pipelineApi, tasksApi, type Channel, type AiProvider } from '../api/index.js'
 import WorkflowEditor from '../components/WorkflowEditor.vue'
 
 const store = useChannelsStore()
@@ -388,11 +388,29 @@ async function confirmDelete(ch: Channel) {
   await store.deleteChannel(ch.id)
 }
 
+/** Poll a task until it finishes, then return it */
+async function pollTask(taskId: number, timeoutMs = 300000): Promise<import('../api/index.js').Task> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 2500))
+    const res = await tasksApi.get(taskId)
+    const t = res.data
+    if (t.status === 'done' || t.status === 'failed') return t
+  }
+  throw new Error('任务超时（5 分钟）')
+}
+
 async function triggerRun(channelId: number) {
   runningIds.value = new Set([...runningIds.value, channelId])
   try {
-    await pipelineApi.run(channelId)
-    alert('内容发布成功！')
+    const res = await pipelineApi.run(channelId)
+    const { taskId } = res.data
+    const task = await pollTask(taskId)
+    if (task.status === 'failed') {
+      alert(`发布失败：${task.errorMessage || '未知错误'}`)
+    } else {
+      alert('内容发布成功！')
+    }
   } catch (err) {
     alert(`失败：${(err as Error).message}`)
   } finally {
@@ -404,7 +422,25 @@ async function triggerPreview(channelId: number) {
   previewIds.value = new Set([...previewIds.value, channelId])
   try {
     const res = await pipelineApi.run(channelId, true)
-    previewResult.value = res.data.result
+    const { taskId } = res.data
+    // Poll until done, then fetch content history for the preview result
+    const task = await pollTask(taskId)
+    if (task.status === 'failed') {
+      alert(`预览失败：${task.errorMessage || '未知错误'}`)
+      return
+    }
+    // Fetch the preview result from content history
+    const { contentApi } = await import('../api/index.js')
+    const histRes = await contentApi.list({ channelId, limit: 1 })
+    const latest = histRes.data[0]
+    if (latest) {
+      previewResult.value = {
+        textContent: latest.textContent,
+        imageUrl: latest.imageUrl,
+        imagePrompt: latest.imagePrompt,
+        searchKeywords: latest.searchKeywords,
+      }
+    }
   } catch (err) {
     alert(`预览失败：${(err as Error).message}`)
   } finally {
