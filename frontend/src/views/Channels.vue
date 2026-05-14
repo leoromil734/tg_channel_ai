@@ -100,7 +100,10 @@
           </div>
 
           <div class="mt-3 pt-3 border-t border-gray-100 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-400">
-            <span>🕐 {{ ch.scheduleCron || '未设置定时' }}</span>
+            <span v-if="ch.scheduleOnce" class="text-orange-500 font-medium">
+              🕐 一次性：{{ formatOnce(ch.scheduleOnce) }}
+            </span>
+            <span v-else>🕐 {{ ch.scheduleCron || '未设置定时' }}</span>
             <span v-if="ch.config">🔍 搜索 {{ ch.config.searchEnabled ? '开' : '关' }}</span>
             <span v-if="ch.config">🖼️ 配图 {{ ch.config.imageEnabled ? '开' : '关' }}</span>
             <span v-if="ch.config">🌐 {{ LANG_LABELS[ch.config.language] ?? ch.config.language }}</span>
@@ -155,18 +158,39 @@
             <textarea v-model="form.userIntro" class="input" rows="3" placeholder="如：内容活泼有趣，多用 emoji，每篇结尾加互动问题"></textarea>
           </div>
 
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="label">定时发布（Cron）</label>
+          <!-- Schedule -->
+          <div class="space-y-3">
+            <label class="label">发布时间设置</label>
+            <div class="flex gap-2">
+              <button
+                type="button"
+                @click="form.scheduleMode = 'cron'"
+                class="flex-1 py-2 px-3 rounded-lg text-sm border transition-colors"
+                :class="form.scheduleMode === 'cron' ? 'border-primary-500 bg-primary-50 text-primary-700 font-medium' : 'border-gray-200 text-gray-500 hover:border-gray-300'"
+              >🔁 定时循环（Cron）</button>
+              <button
+                type="button"
+                @click="form.scheduleMode = 'once'"
+                class="flex-1 py-2 px-3 rounded-lg text-sm border transition-colors"
+                :class="form.scheduleMode === 'once' ? 'border-primary-500 bg-primary-50 text-primary-700 font-medium' : 'border-gray-200 text-gray-500 hover:border-gray-300'"
+              >🕐 一次性发布</button>
+            </div>
+
+            <div v-if="form.scheduleMode === 'cron'">
               <input v-model="form.scheduleCron" class="input" placeholder="0 9 * * *" />
-              <p class="text-xs text-gray-400 mt-1">每天早9点：0 9 * * *</p>
+              <p class="text-xs text-gray-400 mt-1">每天早9点：<code>0 9 * * *</code>｜每6小时：<code>0 */6 * * *</code></p>
             </div>
-            <div class="flex items-end pb-1">
-              <label class="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" v-model="form.isActive" class="rounded" />
-                <span class="text-sm font-medium text-gray-700">启用频道</span>
-              </label>
+            <div v-else>
+              <input type="datetime-local" v-model="form.scheduleOnce" class="input" />
+              <p class="text-xs text-gray-400 mt-1">到达该时间后自动发布一次，发布后自动清除</p>
             </div>
+          </div>
+
+          <div class="flex items-center">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" v-model="form.isActive" class="rounded" />
+              <span class="text-sm font-medium text-gray-700">启用频道</span>
+            </label>
           </div>
 
           <!-- Pipeline config -->
@@ -278,7 +302,8 @@ const LANG_LABELS: Record<string, string> = { zh: '中文', en: '英文', 'zh-tw
 
 const form = reactive({
   tgChannelId: '', name: '', description: '', userIntro: '',
-  scheduleCron: '0 9 * * *', isActive: true,
+  scheduleCron: '0 9 * * *', scheduleOnce: '', scheduleMode: 'cron' as 'cron' | 'once',
+  isActive: true,
 })
 
 const configForm = reactive({
@@ -295,16 +320,39 @@ function toggleWorkflow(channelId: number) {
 
 function openCreate() {
   editingChannel.value = null
-  Object.assign(form, { tgChannelId: '', name: '', description: '', userIntro: '', scheduleCron: '0 9 * * *', isActive: true })
+  Object.assign(form, { tgChannelId: '', name: '', description: '', userIntro: '', scheduleCron: '0 9 * * *', scheduleOnce: '', scheduleMode: 'cron', isActive: true })
   Object.assign(configForm, { contentStyle: 'informative', language: 'zh', searchEnabled: true, imageEnabled: true, customInstructions: '' })
   showModal.value = true
 }
 
 function openEdit(ch: Channel) {
   editingChannel.value = ch
-  Object.assign(form, { tgChannelId: ch.tgChannelId, name: ch.name, description: ch.description, userIntro: ch.userIntro, scheduleCron: ch.scheduleCron, isActive: ch.isActive })
+  const hasOnce = !!ch.scheduleOnce
+  Object.assign(form, {
+    tgChannelId: ch.tgChannelId, name: ch.name, description: ch.description,
+    userIntro: ch.userIntro, scheduleCron: ch.scheduleCron,
+    scheduleOnce: ch.scheduleOnce ? toLocalDatetimeInput(ch.scheduleOnce) : '',
+    scheduleMode: hasOnce ? 'once' : 'cron',
+    isActive: ch.isActive,
+  })
   if (ch.config) Object.assign(configForm, ch.config)
   showModal.value = true
+}
+
+function toLocalDatetimeInput(isoStr: string): string {
+  if (!isoStr) return ''
+  const d = new Date(isoStr)
+  if (isNaN(d.getTime())) return ''
+  // Format as YYYY-MM-DDTHH:mm for datetime-local input
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function formatOnce(isoStr: string): string {
+  if (!isoStr) return ''
+  const d = new Date(isoStr)
+  if (isNaN(d.getTime())) return isoStr
+  return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 function closeModal() {
@@ -317,14 +365,26 @@ async function saveChannel() {
   try {
     if (editingChannel.value) {
       // If it was a pending/inactive channel being activated, call activate endpoint
+      // Compute the values to save based on schedule mode
+      const scheduleOnceVal = form.scheduleMode === 'once' && form.scheduleOnce
+        ? new Date(form.scheduleOnce).toISOString()
+        : ''
+      const scheduleCronVal = form.scheduleMode === 'cron' ? form.scheduleCron : ''
+
       if (!editingChannel.value.isActive && form.isActive) {
         await channelsApi.activate(editingChannel.value.id, {
           name: form.name, description: form.description,
-          userIntro: form.userIntro, scheduleCron: form.scheduleCron,
+          userIntro: form.userIntro, scheduleCron: scheduleCronVal,
+          scheduleOnce: scheduleOnceVal,
         })
         pendingChannels.value = pendingChannels.value.filter((p) => p.id !== editingChannel.value!.id)
       } else {
-        await store.updateChannel(editingChannel.value.id, { name: form.name, description: form.description, userIntro: form.userIntro, scheduleCron: form.scheduleCron, isActive: form.isActive })
+        await store.updateChannel(editingChannel.value.id, {
+          name: form.name, description: form.description,
+          userIntro: form.userIntro, scheduleCron: scheduleCronVal,
+          scheduleOnce: scheduleOnceVal,
+          isActive: form.isActive,
+        })
       }
       await store.updateConfig(editingChannel.value.id, configForm)
     } else {

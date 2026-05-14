@@ -51,12 +51,14 @@
           </div>
 
           <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
               <span class="font-medium text-gray-800">{{ p.label }}</span>
               <span class="badge badge-gray text-xs">{{ PROVIDER_LABELS[p.providerType] }}</span>
+              <span v-if="p.defaultModel" class="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-mono">{{ p.defaultModel }}</span>
               <span v-if="!p.isEnabled" class="badge badge-red text-xs">已禁用</span>
             </div>
             <div v-if="p.baseUrl" class="text-xs text-gray-400 mt-0.5 truncate">{{ p.baseUrl }}</div>
+            <div v-if="!p.defaultModel" class="text-xs text-yellow-600 mt-0.5">⚠ 未设置默认模型 — 请编辑填写</div>
           </div>
 
           <div class="flex items-center gap-2 flex-shrink-0">
@@ -69,9 +71,24 @@
               />
               启用
             </label>
+            <button
+              @click="testProvider(p)"
+              :disabled="testingId === p.id"
+              class="btn-secondary btn-sm"
+            >{{ testingId === p.id ? '测试中...' : '测试' }}</button>
             <button @click="openEditProvider(p)" class="btn-secondary btn-sm">编辑</button>
             <button @click="deleteProvider(p)" class="btn-danger btn-sm">删除</button>
           </div>
+        </div>
+
+        <!-- Test result inline -->
+        <div v-if="testResults[p.id]" class="mx-4 mb-3 px-3 py-2 rounded-lg text-xs" :class="testResults[p.id].ok ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'">
+          <span v-if="testResults[p.id].ok">
+            ✅ 可用 · {{ testResults[p.id].latency }}ms · 模型: {{ testResults[p.id].model }} · 返回: "{{ testResults[p.id].response }}"
+          </span>
+          <span v-else>
+            ❌ 不可用 · {{ testResults[p.id].latency }}ms · {{ testResults[p.id].error }}
+          </span>
         </div>
       </div>
     </div>
@@ -128,6 +145,22 @@
               :placeholder="editingProvider ? '留空保持不变' : 'sk-... / AIza... / sk-ant-...'"
               :required="!editingProvider"
             />
+          </div>
+
+          <div>
+            <label class="label">
+              默认模型型号 *
+              <span class="text-xs text-gray-400 font-normal ml-1">（工作流节点会自动预填此值）</span>
+            </label>
+            <input
+              v-model="providerForm.defaultModel"
+              class="input"
+              :placeholder="DEFAULT_MODEL_PLACEHOLDERS[providerForm.providerType]"
+            />
+            <p class="text-xs text-gray-400 mt-1">
+              可在下方「常用模型参考」复制模型 ID 填入 ·
+              <span class="text-blue-600">同一提供商在不同工作流节点可使用不同型号</span>
+            </p>
           </div>
 
           <div>
@@ -209,7 +242,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { providersApi, type AiProvider, type ProviderType } from '../api/index.js'
+import { providersApi, type AiProvider, type ProviderType, type ProviderTestResult } from '../api/index.js'
 
 const apiSecret = ref(localStorage.getItem('api_secret') ?? '')
 const showSecret = ref(false)
@@ -218,14 +251,25 @@ const saving = ref(false)
 const showProviderModal = ref(false)
 const editingProvider = ref<AiProvider | null>(null)
 const copyToast = ref('')
+const testingId = ref<number | null>(null)
+const testResults = ref<Record<number, ProviderTestResult>>({})
 
 const providerForm = reactive({
   label: '',
   providerType: 'openai' as ProviderType,
   apiKey: '',
   baseUrl: '',
+  defaultModel: '',
   isEnabled: true,
 })
+
+const DEFAULT_MODEL_PLACEHOLDERS: Record<string, string> = {
+  openai: 'gpt-4o',
+  anthropic: 'claude-sonnet-4-5',
+  gemini: 'gemini-2.0-flash',
+  deepseek: 'deepseek-chat',
+  openai_compatible: '填入该平台支持的模型 ID，如 qwen-plus',
+}
 
 const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
@@ -327,13 +371,13 @@ function saveSecret() {
 
 function openAddProvider() {
   editingProvider.value = null
-  Object.assign(providerForm, { label: '', providerType: 'openai', apiKey: '', baseUrl: '', isEnabled: true })
+  Object.assign(providerForm, { label: '', providerType: 'openai', apiKey: '', baseUrl: '', defaultModel: '', isEnabled: true })
   showProviderModal.value = true
 }
 
 function openEditProvider(p: AiProvider) {
   editingProvider.value = p
-  Object.assign(providerForm, { label: p.label, providerType: p.providerType, apiKey: '', baseUrl: p.baseUrl ?? '', isEnabled: p.isEnabled })
+  Object.assign(providerForm, { label: p.label, providerType: p.providerType, apiKey: '', baseUrl: p.baseUrl ?? '', defaultModel: p.defaultModel ?? '', isEnabled: p.isEnabled })
   showProviderModal.value = true
 }
 
@@ -350,6 +394,7 @@ async function saveProvider() {
         label: providerForm.label,
         providerType: providerForm.providerType,
         baseUrl: providerForm.baseUrl,
+        defaultModel: providerForm.defaultModel,
         isEnabled: providerForm.isEnabled,
       }
       if (providerForm.apiKey) updateData.apiKey = providerForm.apiKey
@@ -360,6 +405,7 @@ async function saveProvider() {
         providerType: providerForm.providerType,
         apiKey: providerForm.apiKey,
         baseUrl: providerForm.baseUrl || undefined,
+        defaultModel: providerForm.defaultModel,
         isEnabled: providerForm.isEnabled,
       })
     }
@@ -381,6 +427,25 @@ async function deleteProvider(p: AiProvider) {
   if (!confirm(`确定删除提供商「${p.label}」？已配置此提供商的工作流节点将失效。`)) return
   await providersApi.delete(p.id)
   await loadProviders()
+}
+
+async function testProvider(p: AiProvider) {
+  if (!p.defaultModel) {
+    alert('请先填写默认模型型号再测试')
+    return
+  }
+  testingId.value = p.id
+  try {
+    const res = await providersApi.test(p.id)
+    testResults.value = { ...testResults.value, [p.id]: res.data }
+  } catch (err) {
+    testResults.value = {
+      ...testResults.value,
+      [p.id]: { ok: false, latency: 0, model: p.defaultModel, providerType: p.providerType, label: p.label, error: (err as Error).message },
+    }
+  } finally {
+    testingId.value = null
+  }
 }
 
 async function loadProviders() {

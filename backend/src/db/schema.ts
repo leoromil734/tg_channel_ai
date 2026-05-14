@@ -8,6 +8,7 @@ export const channels = sqliteTable('channels', {
   description: text('description').default(''),
   userIntro: text('user_intro').default(''),
   scheduleCron: text('schedule_cron').default('0 9 * * *'),
+  scheduleOnce: text('schedule_once').default(''),   // ISO datetime, send once then clear
   isActive: integer('is_active', { mode: 'boolean' }).default(true),
   createdAt: text('created_at').default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').default(sql`(datetime('now'))`),
@@ -25,6 +26,7 @@ export const aiProviders = sqliteTable('ai_providers', {
   }).notNull(),
   apiKey: text('api_key').notNull(),
   baseUrl: text('base_url').default(''),
+  defaultModel: text('default_model').default(''),
   isEnabled: integer('is_enabled', { mode: 'boolean' }).default(true),
   createdAt: text('created_at').default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').default(sql`(datetime('now'))`),

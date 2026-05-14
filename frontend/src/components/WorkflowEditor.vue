@@ -197,6 +197,14 @@ function toggleNode(type: StepType) {
 function updateNodeField<K extends keyof WorkflowNode>(type: StepType, field: K, value: WorkflowNode[K]) {
   const node = ensureNode(type)
   ;(node as unknown as Record<string, unknown>)[field as string] = value
+
+  // When a provider is selected, auto-fill defaultModel if model is currently empty
+  if (field === 'providerId' && value) {
+    const provider = props.providers.find((p) => p.id === value)
+    if (provider?.defaultModel && !node.model) {
+      node.model = provider.defaultModel
+    }
+  }
 }
 
 function toggleAdvanced(type: StepType) {

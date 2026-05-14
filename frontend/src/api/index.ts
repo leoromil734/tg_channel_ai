@@ -31,6 +31,7 @@ export interface Channel {
   description: string
   userIntro: string
   scheduleCron: string
+  scheduleOnce: string   // ISO datetime string, empty = disabled
   isActive: boolean
   createdAt: string
   updatedAt: string
@@ -105,6 +106,7 @@ export interface AiProvider {
   label: string
   providerType: ProviderType
   baseUrl: string
+  defaultModel: string
   isEnabled: boolean
   createdAt: string
   updatedAt: string
@@ -166,13 +168,24 @@ export const contentApi = {
   delete: (id: number) => api.delete(`/content/${id}`),
 }
 
+export interface ProviderTestResult {
+  ok: boolean
+  latency: number
+  model: string
+  providerType: string
+  label: string
+  response?: string
+  error?: string
+}
+
 export const providersApi = {
   list: () => api.get<AiProvider[]>('/providers'),
-  create: (data: { label: string; providerType: ProviderType; apiKey: string; baseUrl?: string; isEnabled?: boolean }) =>
+  create: (data: { label: string; providerType: ProviderType; apiKey: string; baseUrl?: string; defaultModel?: string; isEnabled?: boolean }) =>
     api.post<AiProvider>('/providers', data),
   update: (id: number, data: Partial<AiProvider & { apiKey?: string }>) =>
     api.put<AiProvider>(`/providers/${id}`, data),
   delete: (id: number) => api.delete(`/providers/${id}`),
+  test: (id: number) => api.post<ProviderTestResult>(`/providers/${id}/test`),
 }
 
 export const workflowApi = {

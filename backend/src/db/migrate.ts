@@ -97,6 +97,8 @@ const migrate = () => {
   // Add columns introduced after initial schema (safe to run on existing DBs)
   const alterations = [
     `ALTER TABLE tasks ADD COLUMN current_step TEXT DEFAULT ''`,
+    `ALTER TABLE ai_providers ADD COLUMN default_model TEXT DEFAULT ''`,
+    `ALTER TABLE channels ADD COLUMN schedule_once TEXT DEFAULT ''`,
   ]
   for (const stmt of alterations) {
     try { sqlite.exec(stmt) } catch { /* column already exists */ }

@@ -1,6 +1,7 @@
 import cron from 'node-cron'
 import { db } from '../db/index.js'
 import { channels } from '../db/schema.js'
+import { eq } from 'drizzle-orm'
 import { runPipeline } from '../orchestrator/pipeline.js'
 import type { Bot } from 'grammy'
 
@@ -10,12 +11,42 @@ export function startScheduler(bot: Bot) {
   console.log('[Scheduler] Starting...')
   refreshSchedules(bot)
 
-  // Refresh schedules every 5 minutes to pick up configuration changes
-  cron.schedule('*/5 * * * *', () => {
-    refreshSchedules(bot)
-  })
+  // Refresh recurring schedules every 5 minutes
+  cron.schedule('*/5 * * * *', () => refreshSchedules(bot))
+
+  // Check one-time schedules every minute
+  cron.schedule('* * * * *', () => checkOnceSchedules(bot))
 
   console.log('[Scheduler] Running.')
+}
+
+async function checkOnceSchedules(bot: Bot) {
+  const now = new Date()
+  const allChannels = await db.select().from(channels)
+
+  for (const channel of allChannels) {
+    if (!channel.isActive || !channel.scheduleOnce) continue
+
+    const scheduledAt = new Date(channel.scheduleOnce)
+    if (isNaN(scheduledAt.getTime())) continue
+
+    // Fire if the scheduled time is in the past or within the current minute
+    if (scheduledAt <= now) {
+      console.log(`[Scheduler] One-time trigger for channel: ${channel.name} (scheduled: ${channel.scheduleOnce})`)
+
+      // Clear the schedule_once field immediately to prevent re-triggering
+      await db.update(channels)
+        .set({ scheduleOnce: '', updatedAt: new Date().toISOString() })
+        .where(eq(channels.id, channel.id))
+
+      try {
+        await runPipeline(channel.id, 'auto', bot)
+        console.log(`[Scheduler] One-time run completed for: ${channel.name}`)
+      } catch (err) {
+        console.error(`[Scheduler] One-time run failed for ${channel.name}:`, (err as Error).message)
+      }
+    }
+  }
 }
 
 async function refreshSchedules(bot: Bot) {
@@ -26,7 +57,6 @@ async function refreshSchedules(bot: Bot) {
 
   const currentIds = new Set(activeChannels.map((ch) => ch.id))
 
-  // Remove schedules for channels that are no longer active
   for (const [id, job] of scheduledJobs) {
     if (!currentIds.has(id)) {
       job.stop()
@@ -35,12 +65,10 @@ async function refreshSchedules(bot: Bot) {
     }
   }
 
-  // Add or update schedules
   for (const channel of activeChannels) {
     const cronExpr = channel.scheduleCron!
-
     if (!cron.validate(cronExpr)) {
-      console.warn(`[Scheduler] Invalid cron expression for channel ${channel.id}: "${cronExpr}"`)
+      console.warn(`[Scheduler] Invalid cron for channel ${channel.id}: "${cronExpr}"`)
       continue
     }
 
@@ -51,17 +79,16 @@ async function refreshSchedules(bot: Bot) {
     }
 
     const job = cron.schedule(cronExpr, async () => {
-      console.log(`[Scheduler] Triggering auto-run for channel: ${channel.name} (${channel.id})`)
+      console.log(`[Scheduler] Auto-run: ${channel.name} (${channel.id})`)
       try {
         await runPipeline(channel.id, 'auto', bot)
-        console.log(`[Scheduler] Auto-run completed for channel: ${channel.name}`)
       } catch (err) {
-        console.error(`[Scheduler] Auto-run failed for channel ${channel.name}:`, (err as Error).message)
+        console.error(`[Scheduler] Auto-run failed for ${channel.name}:`, (err as Error).message)
       }
     })
 
     scheduledJobs.set(channel.id, job)
-    console.log(`[Scheduler] Scheduled channel "${channel.name}" with cron: "${cronExpr}"`)
+    console.log(`[Scheduler] Scheduled "${channel.name}" → ${cronExpr}`)
   }
 }
 
