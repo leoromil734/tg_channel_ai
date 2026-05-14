@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router'
 import Dashboard from '../views/Dashboard.vue'
 import Channels from '../views/Channels.vue'
 import Tasks from '../views/Tasks.vue'
@@ -6,7 +6,7 @@ import ContentHistory from '../views/ContentHistory.vue'
 import Settings from '../views/Settings.vue'
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHashHistory(),
   routes: [
     { path: '/', redirect: '/dashboard' },
     { path: '/dashboard', component: Dashboard, meta: { title: '总览' } },
