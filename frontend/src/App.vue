@@ -1,5 +1,8 @@
 <template>
-  <div class="min-h-screen flex">
+  <!-- Login page: no shell -->
+  <router-view v-if="isLoginPage" />
+
+  <div v-else class="min-h-screen flex">
     <!-- Sidebar -->
     <aside class="w-64 bg-gray-900 text-white flex flex-col fixed inset-y-0 left-0 z-50">
       <div class="p-6 border-b border-gray-800">
@@ -27,14 +30,14 @@
         </router-link>
       </nav>
 
-      <div class="p-4 border-t border-gray-800">
+      <div class="p-4 border-t border-gray-800 space-y-2">
         <div class="flex items-center gap-2 text-xs text-gray-500">
-          <span
-            class="w-2 h-2 rounded-full"
-            :class="apiConnected ? 'bg-green-400' : 'bg-red-400'"
-          ></span>
+          <span class="w-2 h-2 rounded-full" :class="apiConnected ? 'bg-green-400' : 'bg-red-400'"></span>
           <span>{{ apiConnected ? 'API 已连接' : 'API 未连接' }}</span>
         </div>
+        <button @click="logout" class="w-full text-left text-xs text-gray-600 hover:text-gray-400 transition-colors py-1">
+          退出登录
+        </button>
       </div>
     </aside>
 
@@ -54,13 +57,16 @@
   </div>
 </template>
 
+
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 
 const route = useRoute()
+const router = useRouter()
 const apiConnected = ref(false)
+const isLoginPage = computed(() => route.path === '/login')
 
 const navItems = [
   { path: '/dashboard', icon: '📊', label: '总览' },
@@ -78,11 +84,16 @@ const currentDate = computed(() => dayjs().format('YYYY年MM月DD日'))
 
 async function checkApiConnection() {
   try {
-    const res = await fetch('/health')
+    const res = await fetch('/res/health')
     apiConnected.value = res.ok
   } catch {
     apiConnected.value = false
   }
+}
+
+function logout() {
+  localStorage.removeItem('api_secret')
+  router.push('/login')
 }
 
 onMounted(() => {

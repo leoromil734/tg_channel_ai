@@ -16,7 +16,7 @@ api.interceptors.response.use(
   (err) => {
     if (err.response?.status === 401) {
       localStorage.removeItem('api_secret')
-      window.location.href = '/login'
+      window.location.hash = '#/login'
     }
     return Promise.reject(err)
   },
