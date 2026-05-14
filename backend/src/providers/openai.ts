@@ -50,8 +50,8 @@ export class OpenAIProvider implements AIProvider {
       params.quality = options.quality ?? 'standard'
       params.response_format = 'url'
     } else if (isGptImage) {
-      // Minimal call — let the API use its defaults
-      if (options.size) params.size = options.size
+      // Minimal call: gpt-image-* proxies often reject explicit size/quality params
+      // Do not add any extra params unless the caller explicitly needs them
     }
 
     const res = await this.client.images.generate(

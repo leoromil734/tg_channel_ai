@@ -12,10 +12,9 @@ export async function runIllustrator(
   imagePrompt: string,
   imageProvider: AIProvider,
 ): Promise<IllustratorResult> {
-  const result = await imageProvider.generateImage(imagePrompt, {
-    size: '1024x1024',
-    quality: 'standard',
-  })
+  // Pass no size/quality — let the model/proxy use its own defaults.
+  // Third-party gpt-image proxies often reject explicit size values with 400.
+  const result = await imageProvider.generateImage(imagePrompt, {})
 
   if (result.startsWith('data:')) {
     const base64Data = result.split(',')[1]

@@ -108,15 +108,33 @@ ${ANTI_AI_RULES}
     maxTokens: 1200,
   })
 
-  // Extract a short topic label for the image prompt step
-  const topicPrompt = `用 5-8 个字概括以下帖子的核心主题，只输出主题词，不要标点符号：\n\n${content.slice(0, 300)}`
-  const topic = await textProvider.generateText(topicPrompt, {
-    temperature: 0.2,
-    maxTokens: 30,
-  })
+  // Prefer the brain's topic from the creative brief to avoid an extra API call
+  // (also avoids issues with reasoning models eating all tokens on a short maxTokens task)
+  let topic = creativeBrief?.topic?.trim() ?? ''
+
+  if (!topic) {
+    // Fallback: extract from content — first try first non-empty line, then API call
+    const firstLine = content.split('\n').find((l) => l.trim().length > 0) ?? ''
+    // Use first line if short enough, otherwise ask the model
+    if (firstLine.length <= 30) {
+      topic = firstLine.replace(/[*_#。，、！？]/g, '').trim()
+    } else {
+      try {
+        const topicPrompt = `用 5-8 个字概括以下帖子的核心主题，只输出主题词，不要标点符号：\n\n${content.slice(0, 300)}`
+        const extracted = await textProvider.generateText(topicPrompt, {
+          temperature: 0.2,
+          maxTokens: 200,   // large enough for reasoning models
+        })
+        topic = extracted.trim().replace(/[。，、！？\n]/g, '').slice(0, 40)
+      } catch {
+        // Last resort: use first 20 chars of content
+        topic = content.slice(0, 20).replace(/[*_#\n]/g, '').trim()
+      }
+    }
+  }
 
   return {
     content: content.trim(),
-    topic: topic.trim().replace(/[。，、！？\n]/g, ''),
+    topic,
   }
 }
