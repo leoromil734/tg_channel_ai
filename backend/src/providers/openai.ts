@@ -1,10 +1,16 @@
 import OpenAI from 'openai'
 import type { AIProvider, GenerateImageOptions, GenerateTextOptions } from './types.js'
 
-// Prefix-based check: covers dall-e-*, gpt-image-*, gpt-image2, etc.
+// Prefix-based check: covers dall-e-*, gpt-image-*, firefly-gpt-image-*, etc.
 function isImageModel(model: string): boolean {
   const m = model.toLowerCase()
-  return m.startsWith('dall-e') || m.startsWith('gpt-image') || m === 'dall-e-3' || m === 'dall-e-2'
+  return (
+    m.startsWith('dall-e') ||
+    m.startsWith('gpt-image') ||
+    m.includes('gpt-image') ||   // handles firefly-gpt-image-2-1k-1 style names
+    m.includes('image-gen') ||
+    m.includes('image-generation')
+  )
 }
 
 export class OpenAIProvider implements AIProvider {
@@ -97,7 +103,7 @@ export class OpenAIProvider implements AIProvider {
     return this.generateText(buildPromptRequest(topic, style, context), {
       systemPrompt: PROMPT_SYSTEM,
       temperature: 0.9,
-      maxTokens: 300,
+      maxTokens: 120,   // Keep prompts short — many image proxies reject long prompts with 400
     })
   }
 }

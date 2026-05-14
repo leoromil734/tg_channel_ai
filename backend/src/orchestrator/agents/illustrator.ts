@@ -12,9 +12,11 @@ export async function runIllustrator(
   imagePrompt: string,
   imageProvider: AIProvider,
 ): Promise<IllustratorResult> {
-  // Pass no size/quality — let the model/proxy use its own defaults.
-  // Third-party gpt-image proxies often reject explicit size values with 400.
-  const result = await imageProvider.generateImage(imagePrompt, {})
+  // Truncate prompt: many third-party proxies reject long prompts with 400.
+  // Keep it under 600 chars for maximum compatibility.
+  const safePrompt = imagePrompt.length > 600 ? imagePrompt.slice(0, 597) + '...' : imagePrompt
+
+  const result = await imageProvider.generateImage(safePrompt, {})
 
   if (result.startsWith('data:')) {
     const base64Data = result.split(',')[1]
