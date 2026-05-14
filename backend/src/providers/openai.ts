@@ -1,4 +1,4 @@
-import OpenAI from 'openai'
+﻿import OpenAI from 'openai'
 import type { AIProvider, GenerateImageOptions, GenerateTextOptions } from './types.js'
 
 // Prefix-based check: covers dall-e-*, gpt-image-*, firefly-gpt-image-*, etc.
