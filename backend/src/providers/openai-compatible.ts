@@ -80,12 +80,11 @@ export class OpenAICompatibleProvider implements AIProvider {
       throw new Error(`${this.name} (model: ${this.model}) does not support image generation.`)
     }
 
-    // Try standard images API first
+    // Try standard images API first — send only model+prompt, no extras
     try {
       const res = await this.client.images.generate({
         model: this.model,
         prompt,
-        n: 1,
       } as Parameters<typeof this.client.images.generate>[0])
 
       const raw = res as unknown as Record<string, unknown>

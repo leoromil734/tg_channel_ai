@@ -43,29 +43,39 @@ export class OpenAIProvider implements AIProvider {
 
   async generateImage(prompt: string, options: GenerateImageOptions = {}): Promise<string> {
     const m = this.model.toLowerCase()
-    const isGptImage = m.startsWith('gpt-image')
     const isDallE = m.startsWith('dall-e')
 
-    // gpt-image-* (gpt-image-1, gpt-image-2, etc.):
-    //   - Only requires model + prompt; extra params cause API errors
-    //   - Always returns b64_json automatically
-    // dall-e-* supports size / quality / response_format
-    const params: Record<string, unknown> = { model: this.model, prompt, n: 1 }
+    // For DALL-E: pass size / quality / response_format / n
+    // For everything else (gpt-image-*, firefly-gpt-image-*, custom proxies):
+    //   send ONLY model + prompt — any extra param risks a 400 from the proxy
+    let params: Record<string, unknown>
     if (isDallE) {
-      params.size = options.size ?? '1024x1024'
-      params.quality = options.quality ?? 'standard'
-      params.response_format = 'url'
-    } else if (isGptImage) {
-      // Minimal call: gpt-image-* proxies often reject explicit size/quality params
-      // Do not add any extra params unless the caller explicitly needs them
+      params = {
+        model: this.model,
+        prompt,
+        n: 1,
+        size: options.size ?? '1024x1024',
+        quality: options.quality ?? 'standard',
+        response_format: 'url',
+      }
+    } else {
+      params = { model: this.model, prompt }
     }
 
-    const res = await this.client.images.generate(
-      params as Parameters<typeof this.client.images.generate>[0],
-    )
+    let res: unknown
+    try {
+      res = await this.client.images.generate(
+        params as Parameters<typeof this.client.images.generate>[0],
+      )
+    } catch (err) {
+      // Re-throw with full API error body for easier debugging
+      const apiErr = err as Record<string, unknown>
+      const body = apiErr.error ?? apiErr.message ?? err
+      throw new Error(`Image API error: ${JSON.stringify(body).slice(0, 400)}`)
+    }
 
     // Normalize response — third-party proxies may use non-standard shapes
-    const raw = res as unknown as Record<string, unknown>
+    const raw = res as Record<string, unknown>
 
     // Case 1: Standard images API — { data: [{ b64_json | url }] }
     if (Array.isArray(raw.data) && raw.data.length > 0) {
