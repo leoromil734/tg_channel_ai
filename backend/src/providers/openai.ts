@@ -62,45 +62,57 @@ export class OpenAIProvider implements AIProvider {
       params = { model: this.model, prompt }
     }
 
-    let res: unknown
+    // Try /images/generations first; fall back to /chat/completions for proxies
+    // that route image generation through the chat API
+    let raw: Record<string, unknown> | null = null
+
     try {
-      res = await this.client.images.generate(
+      const res = await this.client.images.generate(
         params as Parameters<typeof this.client.images.generate>[0],
       )
-    } catch (err) {
-      // Re-throw with full API error body for easier debugging
-      const apiErr = err as Record<string, unknown>
-      const body = apiErr.error ?? apiErr.message ?? err
-      throw new Error(`Image API error: ${JSON.stringify(body).slice(0, 400)}`)
+      raw = res as unknown as Record<string, unknown>
+    } catch (_err) {
+      // Proxy doesn't support /images/generations — try chat completions fallback
+      console.warn(`[OpenAIProvider] images.generate failed, trying chat completions fallback`)
     }
 
-    // Normalize response — third-party proxies may use non-standard shapes
-    const raw = res as Record<string, unknown>
+    // If images API failed or returned empty data, fall back to chat completions
+    if (!raw || (!Array.isArray(raw.data) && !Array.isArray(raw.choices))) {
+      const chatRes = await this.client.chat.completions.create({
+        model: this.model,
+        messages: [{ role: 'user', content: prompt }],
+      } as Parameters<typeof this.client.chat.completions.create>[0])
 
-    // Case 1: Standard images API — { data: [{ b64_json | url }] }
+      const text = chatRes.choices[0]?.message?.content ?? ''
+      const mdMatch = text.match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/)
+      if (mdMatch) return mdMatch[1]
+      const urlMatch = text.match(/https?:\/\/[^\s"')]+/)
+      if (urlMatch) return urlMatch[0]
+      if (text.startsWith('data:image')) return text
+      if (text.length > 100) return `data:image/png;base64,${text}` // raw base64
+      throw new Error(`Image generation via chat fallback returned no image: "${text.slice(0, 200)}"`)
+    }
+
+    // Parse standard images API response
+    // Case 1: { data: [{ b64_json | url }] }
     if (Array.isArray(raw.data) && raw.data.length > 0) {
       const item = raw.data[0] as Record<string, unknown>
       if (item.b64_json) return `data:image/png;base64,${item.b64_json}`
       if (item.url) return item.url as string
     }
 
-    // Case 2: Some proxies return chat completion format where the image
-    // URL is embedded as a Markdown image inside message.content:
-    // { choices: [{ message: { content: "![image](https://...)" } }] }
+    // Case 2: Chat completion format in images response
     if (Array.isArray(raw.choices) && raw.choices.length > 0) {
-      const content = (raw.choices[0] as Record<string, unknown>)
-      const msg = content.message as Record<string, unknown> | undefined
-      const text = (msg?.content ?? '') as string
-      // Extract URL from Markdown: ![...](url) or plain https:// url
+      const msg = ((raw.choices[0] as Record<string, unknown>).message ?? {}) as Record<string, unknown>
+      const text = (msg.content ?? '') as string
       const mdMatch = text.match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/)
       if (mdMatch) return mdMatch[1]
       const urlMatch = text.match(/https?:\/\/[^\s"')]+/)
       if (urlMatch) return urlMatch[0]
-      // Maybe it's a raw base64 blob
       if (text.startsWith('data:image')) return text
     }
 
-    // Case 3: Deep scan for any b64_json / url field anywhere in the response
+    // Case 3: Deep scan
     const anyB64 = findDeep(raw, 'b64_json') as string | undefined
     if (anyB64) return `data:image/png;base64,${anyB64}`
     const anyUrl = findDeep(raw, 'url') as string | undefined
