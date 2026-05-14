@@ -29,7 +29,7 @@ export class OpenAIProvider implements AIProvider {
 
   async generateText(userPrompt: string, options: GenerateTextOptions = {}): Promise<string> {
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = []
-    if (options.[REDACTED]) messages.push({ role: 'system', content: options.[REDACTED] })
+    if (options.systemPrompt) messages.push({ role: 'system', content: options.systemPrompt })
     messages.push({ role: 'user', content: userPrompt })
 
     console.log(`[OpenAIProvider] generateText with model: ${this.model}`)
@@ -140,9 +140,9 @@ export class OpenAIProvider implements AIProvider {
 
   async generatePrompt(topic: string, style: string, context?: string): Promise<string> {
     return this.generateText(buildPromptRequest(topic, style, context), {
-      [REDACTED]: PROMPT_SYSTEM,
+      systemPrompt: PROMPT_SYSTEM,
       temperature: 0.9,
-      maxTokens: 120,   // Keep prompts short — many image proxies reject long prompts with 400
+      maxTokens: 120,
     })
   }
 }
