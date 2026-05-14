@@ -58,22 +58,37 @@ export class OpenAIProvider implements AIProvider {
       params as Parameters<typeof this.client.images.generate>[0],
     )
 
-    // Normalize response — some proxies use non-standard shapes
+    // Normalize response — third-party proxies may use non-standard shapes
     const raw = res as unknown as Record<string, unknown>
-    const item = (Array.isArray(raw.data) ? raw.data[0] : raw) as Record<string, unknown> | undefined
 
-    if (item) {
-      const b64 = item.b64_json as string | undefined
-      if (b64) return `data:image/png;base64,${b64}`
-      const url = item.url as string | undefined
-      if (url) return url
+    // Case 1: Standard images API — { data: [{ b64_json | url }] }
+    if (Array.isArray(raw.data) && raw.data.length > 0) {
+      const item = raw.data[0] as Record<string, unknown>
+      if (item.b64_json) return `data:image/png;base64,${item.b64_json}`
+      if (item.url) return item.url as string
     }
 
-    // Deep scan fallback for unexpected proxy response shapes
+    // Case 2: Some proxies return chat completion format where the image
+    // URL is embedded as a Markdown image inside message.content:
+    // { choices: [{ message: { content: "![image](https://...)" } }] }
+    if (Array.isArray(raw.choices) && raw.choices.length > 0) {
+      const content = (raw.choices[0] as Record<string, unknown>)
+      const msg = content.message as Record<string, unknown> | undefined
+      const text = (msg?.content ?? '') as string
+      // Extract URL from Markdown: ![...](url) or plain https:// url
+      const mdMatch = text.match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/)
+      if (mdMatch) return mdMatch[1]
+      const urlMatch = text.match(/https?:\/\/[^\s"')]+/)
+      if (urlMatch) return urlMatch[0]
+      // Maybe it's a raw base64 blob
+      if (text.startsWith('data:image')) return text
+    }
+
+    // Case 3: Deep scan for any b64_json / url field anywhere in the response
     const anyB64 = findDeep(raw, 'b64_json') as string | undefined
     if (anyB64) return `data:image/png;base64,${anyB64}`
     const anyUrl = findDeep(raw, 'url') as string | undefined
-    if (anyUrl) return anyUrl
+    if (anyUrl) return anyUrl as string
 
     throw new Error(`Image generation returned unexpected format: ${JSON.stringify(raw).slice(0, 300)}`)
   }
