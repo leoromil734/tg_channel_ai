@@ -40,55 +40,55 @@
         <div
           v-for="p in providers"
           :key="p.id"
-          class="flex items-center gap-4 p-4 rounded-xl border border-gray-200 hover:border-gray-300 transition-colors"
+          class="rounded-xl border border-gray-200 hover:border-gray-300 transition-colors overflow-hidden"
           :class="p.isEnabled ? '' : 'opacity-60'"
         >
-          <div
-            class="w-9 h-9 rounded-lg flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
-            :class="PROVIDER_COLORS[p.providerType]"
-          >
-            {{ PROVIDER_ICONS[p.providerType] }}
-          </div>
-
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2 flex-wrap">
-              <span class="font-medium text-gray-800">{{ p.label }}</span>
-              <span class="badge badge-gray text-xs">{{ PROVIDER_LABELS[p.providerType] }}</span>
-              <span v-if="p.defaultModel" class="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-mono">{{ p.defaultModel }}</span>
-              <span v-if="!p.isEnabled" class="badge badge-red text-xs">已禁用</span>
+          <!-- Provider row -->
+          <div class="flex items-center gap-4 p-4">
+            <div
+              class="w-9 h-9 rounded-lg flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
+              :class="PROVIDER_COLORS[p.providerType]"
+            >
+              {{ PROVIDER_ICONS[p.providerType] }}
             </div>
-            <div v-if="p.baseUrl" class="text-xs text-gray-400 mt-0.5 truncate">{{ p.baseUrl }}</div>
-            <div v-if="!p.defaultModel" class="text-xs text-yellow-600 mt-0.5">⚠ 未设置默认模型 — 请编辑填写</div>
+
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-medium text-gray-800">{{ p.label }}</span>
+                <span class="badge badge-gray text-xs">{{ PROVIDER_LABELS[p.providerType] }}</span>
+                <span v-if="p.defaultModel" class="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-mono">{{ p.defaultModel }}</span>
+                <span v-if="!p.isEnabled" class="badge badge-red text-xs">已禁用</span>
+              </div>
+              <div v-if="p.baseUrl" class="text-xs text-gray-400 mt-0.5 truncate">{{ p.baseUrl }}</div>
+              <div v-if="!p.defaultModel" class="text-xs text-yellow-600 mt-0.5">⚠ 未设置默认模型 — 请编辑填写</div>
+            </div>
+
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <label class="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+                <input type="checkbox" :checked="p.isEnabled" @change="toggleProvider(p)" class="rounded" />
+                启用
+              </label>
+              <button @click="testProvider(p)" :disabled="testingId === p.id" class="btn-secondary btn-sm">
+                {{ testingId === p.id ? '测试中...' : '测试' }}
+              </button>
+              <button @click="openEditProvider(p)" class="btn-secondary btn-sm">编辑</button>
+              <button @click="deleteProvider(p)" class="btn-danger btn-sm">删除</button>
+            </div>
           </div>
 
-          <div class="flex items-center gap-2 flex-shrink-0">
-            <label class="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
-              <input
-                type="checkbox"
-                :checked="p.isEnabled"
-                @change="toggleProvider(p)"
-                class="rounded"
-              />
-              启用
-            </label>
-            <button
-              @click="testProvider(p)"
-              :disabled="testingId === p.id"
-              class="btn-secondary btn-sm"
-            >{{ testingId === p.id ? '测试中...' : '测试' }}</button>
-            <button @click="openEditProvider(p)" class="btn-secondary btn-sm">编辑</button>
-            <button @click="deleteProvider(p)" class="btn-danger btn-sm">删除</button>
+          <!-- Test result (inside v-for so p is in scope) -->
+          <div
+            v-if="testResults[p.id]"
+            class="px-4 py-2 text-xs border-t"
+            :class="testResults[p.id].ok ? 'bg-green-50 text-green-800 border-green-100' : 'bg-red-50 text-red-800 border-red-100'"
+          >
+            <span v-if="testResults[p.id].ok">
+              ✅ 可用 · {{ testResults[p.id].latency }}ms · 模型: {{ testResults[p.id].model }} · 返回: "{{ testResults[p.id].response }}"
+            </span>
+            <span v-else>
+              ❌ 不可用 · {{ testResults[p.id].latency }}ms · {{ testResults[p.id].error }}
+            </span>
           </div>
-        </div>
-
-        <!-- Test result inline -->
-        <div v-if="testResults[p.id]" class="mx-4 mb-3 px-3 py-2 rounded-lg text-xs" :class="testResults[p.id].ok ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'">
-          <span v-if="testResults[p.id].ok">
-            ✅ 可用 · {{ testResults[p.id].latency }}ms · 模型: {{ testResults[p.id].model }} · 返回: "{{ testResults[p.id].response }}"
-          </span>
-          <span v-else>
-            ❌ 不可用 · {{ testResults[p.id].latency }}ms · {{ testResults[p.id].error }}
-          </span>
         </div>
       </div>
     </div>
