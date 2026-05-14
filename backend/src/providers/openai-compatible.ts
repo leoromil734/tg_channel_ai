@@ -38,13 +38,26 @@ export class OpenAICompatibleProvider implements AIProvider {
     if (options.systemPrompt) messages.push({ role: 'system', content: options.systemPrompt })
     messages.push({ role: 'user', content: userPrompt })
 
+    // DeepSeek reasoning models (r1, v3, v4-pro, etc.) support the `thinking` parameter.
+    // We always pass it for deepseek providerType so reasoning tokens are generated
+    // separately from the final content (content field will be non-empty).
+    const extraParams: Record<string, unknown> = {}
+    if (this.providerType === 'deepseek') {
+      extraParams.thinking = { type: 'enabled' }
+    }
+
     const res = await this.client.chat.completions.create({
       model: this.model,
       messages,
       temperature: options.temperature ?? 0.8,
       max_tokens: options.maxTokens ?? 2048,
-    })
-    return res.choices[0]?.message?.content ?? ''
+      ...extraParams,
+    } as Parameters<typeof this.client.chat.completions.create>[0])
+
+    // For reasoning models the answer lives in `content`;
+    // `reasoning_content` holds the chain-of-thought (we ignore it here).
+    const choice = res.choices[0]
+    return choice?.message?.content ?? ''
   }
 
   async generateImage(_prompt: string, _options?: GenerateImageOptions): Promise<string> {

@@ -87,7 +87,7 @@ providersRouter.post('/:id/test', async (c) => {
     const response = await provider.generateText('Reply with exactly: "OK"', {
       systemPrompt: 'You are a test assistant. Follow the instruction exactly.',
       temperature: 0,
-      maxTokens: 10,
+      maxTokens: 512,   // Reasoning models consume tokens on chain-of-thought before content
     })
 
     const latency = Date.now() - start
