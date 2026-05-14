@@ -15,9 +15,13 @@ export function createApp() {
   app.use(
     '/api/*',
     cors({
-      origin: process.env.FRONTEND_URL ?? 'http://localhost:5173',
+      origin: (origin) => {
+        const allowed = (process.env.FRONTEND_URL ?? 'http://localhost:5173').split(',').map((s) => s.trim())
+        return allowed.includes(origin) || origin.endsWith('.0pm.cc') ? origin : allowed[0]
+      },
       allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       allowHeaders: ['Content-Type', 'Authorization'],
+      credentials: true,
     }),
   )
 

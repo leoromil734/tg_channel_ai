@@ -26,7 +26,7 @@ async function main() {
 
   // Start HTTP API server
   const app = createApp()
-  const port = parseInt(process.env.PORT ?? '3000', 10)
+  const port = parseInt(process.env.PORT ?? '9005', 10)
 
   const server = serve({ fetch: app.fetch, port }, () => {
     console.log(`[API] Server running on http://localhost:${port}`)
