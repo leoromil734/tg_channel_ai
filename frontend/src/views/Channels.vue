@@ -8,15 +8,51 @@
       <button @click="openCreate" class="btn-primary">+ 添加频道</button>
     </div>
 
-    <div v-if="loading" class="text-center py-16 text-gray-400">加载中...</div>
-    <div v-else-if="channels.length === 0" class="card p-16 text-center">
-      <div class="text-5xl mb-4">📢</div>
-      <p class="text-gray-600 font-medium mb-2">还没有添加任何频道</p>
-      <button @click="openCreate" class="btn-primary mt-4">添加频道</button>
+    <!-- Auto-discovered pending channels -->
+    <div v-if="pendingChannels.length > 0" class="card border-l-4 border-yellow-400 overflow-hidden">
+      <div class="px-5 py-3 bg-yellow-50 border-b border-yellow-100 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-yellow-600 font-medium text-sm">🔔 Bot 已加入的新频道（待配置启用）</span>
+          <span class="bg-yellow-400 text-white text-xs px-1.5 py-0.5 rounded-full">{{ pendingChannels.length }}</span>
+        </div>
+        <button @click="loadPending" class="text-xs text-yellow-600 hover:text-yellow-800">刷新</button>
+      </div>
+      <div class="divide-y divide-gray-100">
+        <div v-for="ch in pendingChannels" :key="ch.id" class="px-5 py-4 flex items-center gap-4">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="font-medium text-gray-800">{{ ch.name }}</span>
+              <span class="text-xs text-gray-400 font-mono">{{ ch.tgChannelId }}</span>
+            </div>
+            <p v-if="ch.description" class="text-xs text-gray-500 mt-0.5">{{ ch.description }}</p>
+            <p v-else class="text-xs text-gray-400 mt-0.5 italic">Bot 自动检测到，尚未填写简介</p>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <button
+              @click="openActivate(ch)"
+              class="btn-primary btn-sm"
+            >配置并启用</button>
+            <button
+              @click="activateQuick(ch)"
+              :disabled="activatingIds.has(ch.id)"
+              class="btn-secondary btn-sm"
+            >{{ activatingIds.has(ch.id) ? '启用中...' : '直接启用' }}</button>
+            <button @click="confirmDelete(ch)" class="btn-danger btn-sm">忽略</button>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <div v-else class="space-y-4">
-      <div v-for="ch in channels" :key="ch.id" class="card overflow-hidden">
+    <div v-if="loading" class="text-center py-16 text-gray-400">加载中...</div>
+    <div v-else-if="activeChannels.length === 0" class="card p-16 text-center">
+      <div class="text-5xl mb-4">📢</div>
+      <p class="text-gray-600 font-medium mb-2">还没有启用任何频道</p>
+      <p class="text-sm text-gray-400 mb-4">将 Bot 设为频道管理员，系统会自动检测</p>
+      <button @click="openCreate" class="btn-primary mt-2">手动添加频道</button>
+    </div>
+
+    <div v-else-if="activeChannels.length > 0" class="space-y-4">
+      <div v-for="ch in activeChannels" :key="ch.id" class="card overflow-hidden">
         <!-- Channel header -->
         <div class="p-5">
           <div class="flex items-start justify-between gap-4">
@@ -200,7 +236,11 @@ import WorkflowEditor from '../components/WorkflowEditor.vue'
 
 const store = useChannelsStore()
 const channels = computed(() => store.channels)
+const activeChannels = computed(() => channels.value.filter((ch) => ch.isActive))
 const loading = computed(() => store.loading)
+
+const pendingChannels = ref<Channel[]>([])
+const activatingIds = ref<Set<number>>(new Set())
 
 const providers = ref<AiProvider[]>([])
 const workflowOpen = ref<Set<number>>(new Set())
@@ -253,7 +293,16 @@ async function saveChannel() {
   saving.value = true
   try {
     if (editingChannel.value) {
-      await store.updateChannel(editingChannel.value.id, { name: form.name, description: form.description, userIntro: form.userIntro, scheduleCron: form.scheduleCron, isActive: form.isActive })
+      // If it was a pending/inactive channel being activated, call activate endpoint
+      if (!editingChannel.value.isActive && form.isActive) {
+        await channelsApi.activate(editingChannel.value.id, {
+          name: form.name, description: form.description,
+          userIntro: form.userIntro, scheduleCron: form.scheduleCron,
+        })
+        pendingChannels.value = pendingChannels.value.filter((p) => p.id !== editingChannel.value!.id)
+      } else {
+        await store.updateChannel(editingChannel.value.id, { name: form.name, description: form.description, userIntro: form.userIntro, scheduleCron: form.scheduleCron, isActive: form.isActive })
+      }
       await store.updateConfig(editingChannel.value.id, configForm)
     } else {
       const created = await store.createChannel(form)
@@ -300,8 +349,53 @@ async function triggerPreview(channelId: number) {
   }
 }
 
+async function loadPending() {
+  try {
+    const res = await channelsApi.listPending()
+    pendingChannels.value = res.data
+  } catch {
+    pendingChannels.value = []
+  }
+}
+
+async function activateQuick(ch: Channel) {
+  activatingIds.value = new Set([...activatingIds.value, ch.id])
+  try {
+    await channelsApi.activate(ch.id)
+    pendingChannels.value = pendingChannels.value.filter((p) => p.id !== ch.id)
+    await store.fetchChannels()
+  } catch (err) {
+    alert(`启用失败：${(err as Error).message}`)
+  } finally {
+    const next = new Set(activatingIds.value); next.delete(ch.id); activatingIds.value = next
+  }
+}
+
+function openActivate(ch: Channel) {
+  // Pre-fill edit form with the discovered channel and open it
+  editingChannel.value = ch
+  Object.assign(form, {
+    tgChannelId: ch.tgChannelId,
+    name: ch.name,
+    description: ch.description ?? '',
+    userIntro: ch.userIntro ?? '',
+    scheduleCron: ch.scheduleCron ?? '0 9 * * *',
+    isActive: true,
+  })
+  Object.assign(configForm, {
+    searchEnabled: true,
+    imageEnabled: true,
+    contentStyle: 'informative',
+    language: 'zh',
+    customInstructions: '',
+    searchQueryTemplate: '',
+  })
+  showModal.value = true
+}
+
 onMounted(async () => {
   await store.fetchChannels()
+  await loadPending()
   const provRes = await providersApi.list()
   providers.value = provRes.data
   for (const ch of channels.value) {

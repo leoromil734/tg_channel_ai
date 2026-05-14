@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 const api = axios.create({
-  baseURL: '/res/api',
+  baseURL: '/res',
   headers: { 'Content-Type': 'application/json' },
 })
 
@@ -137,6 +137,8 @@ export interface TaskStats {
 
 export const channelsApi = {
   list: () => api.get<Channel[]>('/channels'),
+  listPending: () => api.get<Channel[]>('/channels/pending'),
+  activate: (id: number, data?: Partial<Channel>) => api.post<Channel>(`/channels/${id}/activate`, data ?? {}),
   get: (id: number) => api.get<Channel>(`/channels/${id}`),
   create: (data: Partial<Channel>) => api.post<Channel>('/channels', data),
   update: (id: number, data: Partial<Channel>) => api.put<Channel>(`/channels/${id}`, data),

@@ -29,6 +29,47 @@ channelsRouter.get('/', async (c) => {
   return c.json(rows)
 })
 
+/** GET /channels/pending — auto-discovered channels awaiting web UI confirmation */
+channelsRouter.get('/pending', async (c) => {
+  const rows = await db
+    .select()
+    .from(channels)
+    .where(eq(channels.isActive, false))
+    .orderBy(channels.createdAt)
+  return c.json(rows)
+})
+
+/** POST /channels/:id/activate — confirm and activate an auto-discovered channel */
+channelsRouter.post('/:id/activate', async (c) => {
+  const id = parseInt(c.req.param('id'), 10)
+  const body = await c.req.json().catch(() => ({}))
+
+  const updateData: Record<string, unknown> = {
+    isActive: true,
+    updatedAt: new Date().toISOString(),
+  }
+  if (body.name) updateData.name = body.name
+  if (body.description !== undefined) updateData.description = body.description
+  if (body.userIntro !== undefined) updateData.userIntro = body.userIntro
+  if (body.scheduleCron) updateData.scheduleCron = body.scheduleCron
+
+  const [updated] = await db
+    .update(channels)
+    .set(updateData)
+    .where(eq(channels.id, id))
+    .returning()
+
+  if (!updated) return c.json({ error: 'Not found' }, 404)
+
+  // Ensure pipeline config exists
+  const configs = await db.select().from(pipelineConfigs).where(eq(pipelineConfigs.channelId, id)).limit(1)
+  if (configs.length === 0) {
+    await db.insert(pipelineConfigs).values({ channelId: id })
+  }
+
+  return c.json(updated)
+})
+
 channelsRouter.post('/', async (c) => {
   const body = await c.req.json()
   const parsed = channelSchema.safeParse(body)

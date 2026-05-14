@@ -13,7 +13,7 @@ export function createApp() {
 
   app.use('*', logger())
   app.use(
-    '/api/*',
+    '/*',
     cors({
       origin: (origin) => {
         const allowed = (process.env.FRONTEND_URL ?? 'http://localhost:5173').split(',').map((s) => s.trim())
@@ -25,7 +25,8 @@ export function createApp() {
     }),
   )
 
-  app.use('/api/*', async (c, next) => {
+  app.use('/*', async (c, next) => {
+    if (c.req.path === '/health') return next()
     const secret = process.env.API_SECRET
     if (secret) {
       const auth = c.req.header('Authorization')
@@ -38,12 +39,12 @@ export function createApp() {
 
   app.get('/health', (c) => c.json({ status: 'ok', time: new Date().toISOString() }))
 
-  app.route('/api/channels', channelsRouter)
-  app.route('/api/tasks', tasksRouter)
-  app.route('/api/content', contentRouter)
-  app.route('/api/providers', providersRouter)
-  app.route('/api/pipeline', pipelineRouter)
-  app.route('/api/workflow', workflowRouter)
+  app.route('/channels', channelsRouter)
+  app.route('/tasks', tasksRouter)
+  app.route('/content', contentRouter)
+  app.route('/providers', providersRouter)
+  app.route('/pipeline', pipelineRouter)
+  app.route('/workflow', workflowRouter)
 
   return app
 }

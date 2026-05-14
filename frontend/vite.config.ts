@@ -12,10 +12,11 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      // Strip /res prefix, mirroring the production Apache ProxyPass /res → localhost:9005/
       '/res': {
         target: 'http://localhost:9005',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/res/, ''),
+        rewrite: (path) => path.replace(/^\/res\/?/, '/'),
       },
     },
   },

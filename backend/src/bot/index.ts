@@ -4,6 +4,7 @@ import { registerChannels } from './commands/channels.js'
 import { registerRun } from './commands/run.js'
 import { registerStatus } from './commands/status.js'
 import { registerSetSchedule } from './commands/setschedule.js'
+import { registerAutoDiscover } from './handlers/autoDiscover.js'
 
 export function createBot(token: string): Bot {
   const bot = new Bot(token)
@@ -37,6 +38,7 @@ export function createBot(token: string): Bot {
     )
   })
 
+  registerAutoDiscover(bot)
   registerAddChannel(bot)
   registerChannels(bot)
   registerRun(bot)
