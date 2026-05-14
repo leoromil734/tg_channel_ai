@@ -37,8 +37,8 @@ export class OpenAIProvider implements AIProvider {
 
   async generateImage(prompt: string, options: GenerateImageOptions = {}): Promise<string> {
     const m = this.model.toLowerCase()
-    // gpt-image-1 / gpt-image2 use base64 output; dall-e series use URL
-    const useBase64 = m.startsWith('gpt-image')
+    // gpt-image-* series returns b64_json; dall-e series can return URL
+    const preferBase64 = m.startsWith('gpt-image')
 
     const res = await this.client.images.generate({
       model: this.model,
@@ -46,17 +46,30 @@ export class OpenAIProvider implements AIProvider {
       n: 1,
       size: options.size ?? '1024x1024',
       quality: (options.quality ?? 'standard') as 'standard' | 'hd' | 'low' | 'medium' | 'high' | 'auto',
-      ...(useBase64 ? { response_format: 'b64_json' } : { response_format: 'url' }),
-    })
+      response_format: preferBase64 ? 'b64_json' : 'url',
+    } as Parameters<typeof this.client.images.generate>[0])
 
-    if (useBase64) {
-      const b64 = res.data[0]?.b64_json
-      if (!b64) throw new Error('Image generation returned no base64 data')
-      return `data:image/png;base64,${b64}`
+    // Normalize: some third-party proxies wrap differently, treat res as unknown
+    const raw = res as unknown as Record<string, unknown>
+
+    // Priority: data[0].b64_json → data[0].url → top-level b64_json → top-level url
+    const item = (Array.isArray(raw.data) ? raw.data[0] : raw) as Record<string, unknown> | undefined
+
+    if (item) {
+      const b64 = item.b64_json as string | undefined
+      if (b64) return `data:image/png;base64,${b64}`
+
+      const url = item.url as string | undefined
+      if (url) return url
     }
-    const url = res.data[0]?.url
-    if (!url) throw new Error('Image generation returned no URL')
-    return url
+
+    // Last resort: scan the whole response for any url or b64_json field
+    const anyUrl = findDeep(raw, 'url') as string | undefined
+    if (anyUrl) return anyUrl
+    const anyB64 = findDeep(raw, 'b64_json') as string | undefined
+    if (anyB64) return `data:image/png;base64,${anyB64}`
+
+    throw new Error(`Image generation returned unexpected format: ${JSON.stringify(raw).slice(0, 200)}`)
   }
 
   async generatePrompt(topic: string, style: string, context?: string): Promise<string> {
@@ -72,4 +85,23 @@ const PROMPT_SYSTEM = `You are an expert at writing text-to-image prompts. Outpu
 
 function buildPromptRequest(topic: string, style: string, context?: string): string {
   return `Create a detailed text-to-image prompt.\nTopic: ${topic}\nStyle: ${style}${context ? `\nContext: ${context}` : ''}\n\nOutput a single vivid paragraph in English.`
+}
+
+/** Recursively search for a key in a nested object/array */
+function findDeep(obj: unknown, key: string): unknown {
+  if (!obj || typeof obj !== 'object') return undefined
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      const found = findDeep(item, key)
+      if (found !== undefined) return found
+    }
+    return undefined
+  }
+  const record = obj as Record<string, unknown>
+  if (key in record) return record[key]
+  for (const v of Object.values(record)) {
+    const found = findDeep(v, key)
+    if (found !== undefined) return found
+  }
+  return undefined
 }

@@ -252,24 +252,34 @@ async function runPipelineCore(
     if (reviewerNode) {
       await setStep(taskId, 'reviewer')
       await addLog(taskId, 'info', `🔎 Reviewer [${reviewerNode.provider.name}] 审校中...`)
-      try {
-        const reviewed = await runReviewer(
-          writerResult.content,
-          channel.name,
-          channel.description ?? '',
-          channel.userIntro ?? '',
-          reviewerNode.provider,
-          creativeBrief,
-        )
-        finalContent = reviewed.finalContent
-        reviewSuggestions = reviewed.suggestions
-        if (!reviewed.approved) {
-          await addLog(taskId, 'warn', `审校不通过，但仍使用修改后内容: ${reviewed.suggestions}`)
-        } else {
-          await addLog(taskId, 'info', `审校通过: ${reviewed.suggestions}`)
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const reviewed = await runReviewer(
+            writerResult.content,
+            channel.name,
+            channel.description ?? '',
+            channel.userIntro ?? '',
+            reviewerNode.provider,
+            creativeBrief,
+          )
+          finalContent = reviewed.finalContent
+          reviewSuggestions = reviewed.suggestions
+          if (!reviewed.approved) {
+            await addLog(taskId, 'warn', `审校不通过，但仍使用修改后内容: ${reviewed.suggestions}`)
+          } else {
+            await addLog(taskId, 'info', `审校通过: ${reviewed.suggestions || '无建议'}`)
+          }
+          break
+        } catch (err) {
+          const msg = (err as Error).message
+          if (attempt < 2 && (msg.includes('503') || msg.includes('overloaded') || msg.includes('529'))) {
+            await addLog(taskId, 'warn', `Reviewer 暂时过载，5s 后重试...`)
+            await new Promise((r) => setTimeout(r, 5000))
+          } else {
+            await addLog(taskId, 'warn', `Reviewer 失败，使用原始内容: ${msg}`)
+            break
+          }
         }
-      } catch (err) {
-        await addLog(taskId, 'warn', `Reviewer failed: ${(err as Error).message}`)
       }
     }
 
