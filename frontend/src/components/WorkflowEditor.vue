@@ -131,7 +131,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { workflowApi, type WorkflowNode, type StepType, type AiProvider } from '../api/index.js'
 
 const props = defineProps<{ channelId: number; providers: AiProvider[] }>()
@@ -196,7 +196,7 @@ function toggleNode(type: StepType) {
 
 function updateNodeField<K extends keyof WorkflowNode>(type: StepType, field: K, value: WorkflowNode[K]) {
   const node = ensureNode(type)
-  ;(node as Record<string, unknown>)[field as string] = value
+  ;(node as unknown as Record<string, unknown>)[field as string] = value
 }
 
 function toggleAdvanced(type: StepType) {

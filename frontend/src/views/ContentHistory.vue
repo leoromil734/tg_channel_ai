@@ -4,20 +4,20 @@
     <div class="card p-4 flex flex-wrap gap-3 items-end">
       <div>
         <label class="label">频道</label>
-        <select v-model="filterChannelId" class="input w-44" @change="loadContent">
+        <select v-model="filterChannelId" class="input w-44" @change="() => loadContent()">
           <option value="">全部频道</option>
           <option v-for="ch in channels" :key="ch.id" :value="ch.id">{{ ch.name }}</option>
         </select>
       </div>
       <div>
         <label class="label">开始日期</label>
-        <input type="date" v-model="filterDateFrom" class="input w-44" @change="loadContent" />
+        <input type="date" v-model="filterDateFrom" class="input w-44" @change="() => loadContent()" />
       </div>
       <div>
         <label class="label">结束日期</label>
-        <input type="date" v-model="filterDateTo" class="input w-44" @change="loadContent" />
+        <input type="date" v-model="filterDateTo" class="input w-44" @change="() => loadContent()" />
       </div>
-      <button @click="loadContent" class="btn-secondary">刷新</button>
+      <button @click="() => loadContent()" class="btn-secondary">刷新</button>
     </div>
 
     <div class="text-sm text-gray-500">共 {{ items.length }} 条记录</div>

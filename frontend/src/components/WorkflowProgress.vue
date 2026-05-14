@@ -113,7 +113,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
-import type { TaskProgress, TaskProgressNode, TaskLog, PipelineStepName } from '../api/index.js'
+import type { TaskProgress, TaskProgressNode, PipelineStepName } from '../api/index.js'
 import dayjs from 'dayjs'
 
 const props = defineProps<{
