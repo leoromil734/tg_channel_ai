@@ -72,7 +72,14 @@ export class OpenAICompatibleProvider implements AIProvider {
     // For reasoning models the answer lives in `content`;
     // `reasoning_content` holds the chain-of-thought (we ignore it here).
     const choice = res.choices[0]
-    return choice?.message?.content ?? ''
+    const content = choice?.message?.content ?? ''
+    
+    if (!content || content.trim().length === 0) {
+      console.error(`[${this.name}] API returned empty content. Full response:`, JSON.stringify(res, null, 2))
+      throw new Error(`${this.name} API returned empty content for model ${this.model}`)
+    }
+    
+    return content
   }
 
   async generateImage(prompt: string, _options?: GenerateImageOptions): Promise<string> {
