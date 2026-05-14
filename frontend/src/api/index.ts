@@ -178,6 +178,14 @@ export interface ProviderTestResult {
   error?: string
 }
 
+export interface ProviderImageTestResult {
+  ok: boolean
+  latency: number
+  model: string
+  imageData?: string   // data:image/png;base64,... or URL
+  error?: string
+}
+
 export const providersApi = {
   list: () => api.get<AiProvider[]>('/providers'),
   create: (data: { label: string; providerType: ProviderType; apiKey: string; baseUrl?: string; defaultModel?: string; isEnabled?: boolean }) =>
@@ -186,6 +194,8 @@ export const providersApi = {
     api.put<AiProvider>(`/providers/${id}`, data),
   delete: (id: number) => api.delete(`/providers/${id}`),
   test: (id: number) => api.post<ProviderTestResult>(`/providers/${id}/test`),
+  testImage: (id: number, prompt?: string) =>
+    api.post<ProviderImageTestResult>(`/providers/${id}/test-image`, { prompt }),
 }
 
 export const workflowApi = {

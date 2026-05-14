@@ -71,6 +71,13 @@
               <button @click="testProvider(p)" :disabled="testingId === p.id" class="btn-secondary btn-sm">
                 {{ testingId === p.id ? '测试中...' : '测试' }}
               </button>
+              <button
+                v-if="isImageModel(p.defaultModel)"
+                @click="openImageTest(p)"
+                class="btn-secondary btn-sm text-purple-700 border-purple-200 hover:border-purple-400"
+              >
+                🖼 测试生图
+              </button>
               <button @click="openEditProvider(p)" class="btn-secondary btn-sm">编辑</button>
               <button @click="deleteProvider(p)" class="btn-danger btn-sm">删除</button>
             </div>
@@ -230,6 +237,56 @@
       </div>
     </div>
 
+    <!-- Image test modal -->
+    <div v-if="showImageTestModal" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+        <div class="p-5 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h3 class="text-base font-semibold">图片生成测试</h3>
+            <p class="text-xs text-gray-400 mt-0.5">提供商：{{ imageTestProvider?.label }} · 模型：{{ imageTestProvider?.defaultModel }}</p>
+          </div>
+          <button @click="closeImageTest" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+        </div>
+        <div class="p-5 space-y-4">
+          <div>
+            <label class="label">图片描述 Prompt</label>
+            <textarea
+              v-model="imageTestPrompt"
+              class="input h-24 resize-none"
+              placeholder="描述你想生成的图片，建议用英文获得最佳效果..."
+            />
+          </div>
+
+          <button
+            @click="runImageTest"
+            :disabled="imageTestLoading"
+            class="btn-primary w-full"
+          >
+            {{ imageTestLoading ? '生成中，请稍候（约 10-30s）...' : '开始生成' }}
+          </button>
+
+          <!-- Result -->
+          <div v-if="imageTestResult">
+            <div v-if="imageTestResult.ok" class="space-y-3">
+              <div class="text-xs text-green-700 bg-green-50 rounded-lg px-3 py-2">
+                ✅ 生成成功 · {{ imageTestResult.latency }}ms · 模型: {{ imageTestResult.model }}
+              </div>
+              <img
+                v-if="imageTestResult.imageData"
+                :src="imageTestResult.imageData"
+                alt="Generated image"
+                class="w-full rounded-xl border border-gray-200 shadow"
+              />
+            </div>
+            <div v-else class="text-xs text-red-700 bg-red-50 rounded-lg px-3 py-2">
+              ❌ 生成失败 · {{ imageTestResult.latency }}ms<br />
+              <span class="font-mono break-all">{{ imageTestResult.error }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Copy toast -->
     <div
       v-if="copyToast"
@@ -242,7 +299,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { providersApi, type AiProvider, type ProviderType, type ProviderTestResult } from '../api/index.js'
+import { providersApi, type AiProvider, type ProviderType, type ProviderTestResult, type ProviderImageTestResult } from '../api/index.js'
 
 const apiSecret = ref(localStorage.getItem('api_secret') ?? '')
 const showSecret = ref(false)
@@ -253,6 +310,13 @@ const editingProvider = ref<AiProvider | null>(null)
 const copyToast = ref('')
 const testingId = ref<number | null>(null)
 const testResults = ref<Record<number, ProviderTestResult>>({})
+
+// Image test modal state
+const showImageTestModal = ref(false)
+const imageTestProvider = ref<AiProvider | null>(null)
+const imageTestPrompt = ref('')
+const imageTestLoading = ref(false)
+const imageTestResult = ref<ProviderImageTestResult | null>(null)
 
 const providerForm = reactive({
   label: '',
@@ -445,6 +509,39 @@ async function testProvider(p: AiProvider) {
     }
   } finally {
     testingId.value = null
+  }
+}
+
+function isImageModel(model?: string): boolean {
+  if (!model) return false
+  const m = model.toLowerCase()
+  return m.startsWith('gpt-image') || m.startsWith('dall-e') || m.includes('image-generation')
+}
+
+function openImageTest(p: AiProvider) {
+  imageTestProvider.value = p
+  imageTestPrompt.value = ''
+  imageTestResult.value = null
+  showImageTestModal.value = true
+}
+
+function closeImageTest() {
+  showImageTestModal.value = false
+  imageTestProvider.value = null
+  imageTestResult.value = null
+}
+
+async function runImageTest() {
+  if (!imageTestProvider.value) return
+  imageTestLoading.value = true
+  imageTestResult.value = null
+  try {
+    const res = await providersApi.testImage(imageTestProvider.value.id, imageTestPrompt.value || undefined)
+    imageTestResult.value = res.data
+  } catch (err) {
+    imageTestResult.value = { ok: false, latency: 0, model: imageTestProvider.value.defaultModel ?? '', error: (err as Error).message }
+  } finally {
+    imageTestLoading.value = false
   }
 }
 

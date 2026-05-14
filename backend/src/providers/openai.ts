@@ -37,39 +37,45 @@ export class OpenAIProvider implements AIProvider {
 
   async generateImage(prompt: string, options: GenerateImageOptions = {}): Promise<string> {
     const m = this.model.toLowerCase()
-    // gpt-image-* series returns b64_json; dall-e series can return URL
-    const preferBase64 = m.startsWith('gpt-image')
+    const isGptImage = m.startsWith('gpt-image')
+    const isDallE = m.startsWith('dall-e')
 
-    const res = await this.client.images.generate({
-      model: this.model,
-      prompt,
-      n: 1,
-      size: options.size ?? '1024x1024',
-      quality: (options.quality ?? 'standard') as 'standard' | 'hd' | 'low' | 'medium' | 'high' | 'auto',
-      response_format: preferBase64 ? 'b64_json' : 'url',
-    } as Parameters<typeof this.client.images.generate>[0])
+    // gpt-image-* (gpt-image-1, gpt-image-2, etc.):
+    //   - Only requires model + prompt; extra params cause API errors
+    //   - Always returns b64_json automatically
+    // dall-e-* supports size / quality / response_format
+    const params: Record<string, unknown> = { model: this.model, prompt, n: 1 }
+    if (isDallE) {
+      params.size = options.size ?? '1024x1024'
+      params.quality = options.quality ?? 'standard'
+      params.response_format = 'url'
+    } else if (isGptImage) {
+      // Minimal call — let the API use its defaults
+      if (options.size) params.size = options.size
+    }
 
-    // Normalize: some third-party proxies wrap differently, treat res as unknown
+    const res = await this.client.images.generate(
+      params as Parameters<typeof this.client.images.generate>[0],
+    )
+
+    // Normalize response — some proxies use non-standard shapes
     const raw = res as unknown as Record<string, unknown>
-
-    // Priority: data[0].b64_json → data[0].url → top-level b64_json → top-level url
     const item = (Array.isArray(raw.data) ? raw.data[0] : raw) as Record<string, unknown> | undefined
 
     if (item) {
       const b64 = item.b64_json as string | undefined
       if (b64) return `data:image/png;base64,${b64}`
-
       const url = item.url as string | undefined
       if (url) return url
     }
 
-    // Last resort: scan the whole response for any url or b64_json field
-    const anyUrl = findDeep(raw, 'url') as string | undefined
-    if (anyUrl) return anyUrl
+    // Deep scan fallback for unexpected proxy response shapes
     const anyB64 = findDeep(raw, 'b64_json') as string | undefined
     if (anyB64) return `data:image/png;base64,${anyB64}`
+    const anyUrl = findDeep(raw, 'url') as string | undefined
+    if (anyUrl) return anyUrl
 
-    throw new Error(`Image generation returned unexpected format: ${JSON.stringify(raw).slice(0, 200)}`)
+    throw new Error(`Image generation returned unexpected format: ${JSON.stringify(raw).slice(0, 300)}`)
   }
 
   async generatePrompt(topic: string, style: string, context?: string): Promise<string> {

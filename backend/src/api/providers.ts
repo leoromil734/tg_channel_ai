@@ -70,6 +70,40 @@ providersRouter.delete('/:id', async (c) => {
   return c.json({ success: true })
 })
 
+/** POST /providers/:id/test-image — generate a test image to verify image provider */
+providersRouter.post('/:id/test-image', async (c) => {
+  const id = parseInt(c.req.param('id'), 10)
+  const rows = await db.select().from(aiProviders).where(eq(aiProviders.id, id)).limit(1)
+  if (!rows[0]) return c.json({ error: 'Not found' }, 404)
+  const row = rows[0]
+
+  const body = await c.req.json().catch(() => ({})) as { prompt?: string }
+  const prompt = body.prompt?.trim() || 'A simple red apple on a clean white background, realistic photo style'
+  const model = row.defaultModel || 'gpt-image-2'
+  const start = Date.now()
+
+  try {
+    const { getProviderById } = await import('../providers/index.js')
+    const provider = await getProviderById(id, model)
+
+    if (!provider.supportsImages) {
+      return c.json({
+        ok: false,
+        latency: 0,
+        model,
+        error: `模型 "${model}" 不支持图片生成（仅 gpt-image-* / dall-e-* 系列支持）`,
+      })
+    }
+
+    const imageData = await provider.generateImage(prompt)
+    const latency = Date.now() - start
+
+    return c.json({ ok: true, latency, model, imageData })
+  } catch (err) {
+    return c.json({ ok: false, latency: Date.now() - start, model, error: (err as Error).message }, 200)
+  }
+})
+
 /** POST /providers/:id/test — verify the provider is reachable and returns a valid response */
 providersRouter.post('/:id/test', async (c) => {
   const id = parseInt(c.req.param('id'), 10)
