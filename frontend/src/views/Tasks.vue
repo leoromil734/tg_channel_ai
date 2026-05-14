@@ -145,7 +145,7 @@ const { connected } = useTaskEvents(async (event: SSETaskEvent) => {
   if (event.type === 'task:update') {
     // Update the specific task row in-place
     tasksStore.patchTask(event.taskId, {
-      status: event.status,
+      status: event.status as 'pending' | 'running' | 'done' | 'failed',
       currentStep: event.currentStep,
       errorMessage: event.errorMessage,
     })
