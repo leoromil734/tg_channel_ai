@@ -17,6 +17,8 @@ export interface CreativeBrief {
   hashtagSuggestions: string[]
   useImage: boolean
   imageConceptHint: string
+  imageStyle: string
+  contentLength: string
   useSearch: boolean
   reasoning: string
 }
@@ -184,12 +186,14 @@ ${dataSection}
   "topic": "今天要写的核心话题（一句话）",
   "angle": "独特切入角度，说明为什么这个角度比直接介绍更有吸引力",
   "keyPoints": ["要包含的关键信息1", "关键信息2", "关键信息3"],
-  "writingTone": "具体的语气要求，例如：犀利吐槽型 / 朋友聊天型 / 干货分享型 / 情感共鸣型",
+  "writingTone": "具体的语气要求，例如：犀利吐槽型 / 朋友聊天型 / 干货分享型 / 情感共鸣型，每次都要有所变化",
+  "contentLength": "随机决定今天的篇幅：必须从 '短篇 (50-150字)'、'中篇 (150-300字)' 或 '长篇 (300-500字)' 中选一个，追求每天字数和节奏感都有极大差异",
   "openingHook": "第一句话的写法示例，直接给出开头句子",
   "avoidTopics": ["不要提及的内容（如已发布的话题）"],
   "hashtagSuggestions": ["#标签1", "#标签2", "#标签3"],
   "useImage": true或false,
-  "imageConceptHint": "图片要表达的视觉概念",
+  "imageConceptHint": "图片要表达的视觉概念（画面主体和内容）",
+  "imageStyle": "随机指定一种极具差异化的视觉风格，例如：水彩绘本、3D黏土、真实摄影、赛博朋克、复古像素、极简线稿、油画、动漫风格等，确保每次风格迥异",
   "useSearch": ${decideToSearch},
   "reasoning": "为什么选这个角度和话题"
 }`
@@ -210,6 +214,8 @@ ${dataSection}
     hashtagSuggestions: [],
     useImage: true,
     imageConceptHint: channelDescription,
+    imageStyle: '现代商业风格，高质量',
+    contentLength: '中篇 (150-300字)',
     useSearch: decideToSearch,
     reasoning,
   }

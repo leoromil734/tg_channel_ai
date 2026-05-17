@@ -24,7 +24,8 @@ export async function runPrompter(
   promptProvider: AIProvider,
   creativeBrief?: CreativeBrief,
 ): Promise<PrompterResult> {
-  const style = STYLE_GUIDES[contentStyle] ?? 'high quality, detailed, professional'
+  const baseStyle = STYLE_GUIDES[contentStyle] ?? 'high quality, detailed, professional'
+  const style = creativeBrief?.imageStyle ? `${creativeBrief.imageStyle}, ${baseStyle}` : baseStyle
 
   // Use brain's image concept hint when available
   const conceptHint = creativeBrief?.imageConceptHint || `${topic} for ${channelName}`

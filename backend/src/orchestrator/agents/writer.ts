@@ -65,6 +65,7 @@ ${customInstructions ? `\n特别要求：${customInstructions}` : ''}`
 - 核心话题：${creativeBrief.topic}
 - 切入角度：${creativeBrief.angle}
 - 写作语气：${creativeBrief.writingTone}
+- 篇幅字数要求：${creativeBrief.contentLength}
 - 开头示例：${creativeBrief.openingHook || '自由发挥，但要抓眼球'}
 - 必须包含的关键信息：${creativeBrief.keyPoints.join('；')}
 - 不要涉及：${creativeBrief.avoidTopics.join('；') || '无限制'}
@@ -77,7 +78,7 @@ ${ANTI_AI_RULES}
 
 ## 输出要求
 - 语言：${langLabel}
-- 字数：200-450字（Telegram 帖子适宜长度）
+- 字数：必须严格遵守上方设定的【篇幅字数要求】，确保字数在此范围内
 - 直接输出帖子正文，不要加"帖子如下："等前缀
 - 不要 Markdown 标题，Telegram 用 *粗体* _斜体_ 格式
 - 结尾的 hashtag 独立一行`
@@ -97,7 +98,7 @@ ${ANTI_AI_RULES}
 
 ## 输出要求
 - 语言：${langLabel}
-- 字数：200-450字
+- 字数：随机决定篇幅（例如有些时候很短50字，有时候很长400字，不要每次都一样）
 - 直接输出帖子内容
 - 结尾附上 3-5 个相关 hashtag`
   }
