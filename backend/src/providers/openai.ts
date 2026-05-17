@@ -1,4 +1,4 @@
-﻿import OpenAI from 'openai'
+import OpenAI from 'openai'
 import type { AIProvider, GenerateImageOptions, GenerateTextOptions } from './types.js'
 
 // Prefix-based check: covers dall-e-*, gpt-image-*, firefly-gpt-image-*, etc.
@@ -40,7 +40,6 @@ export class OpenAIProvider implements AIProvider {
         model: this.model,
         messages,
         temperature: options.temperature ?? 0.8,
-        max_tokens: options.maxTokens ?? 2048,
       })
 
       console.log(`[OpenAIProvider] Response:`, JSON.stringify(res, null, 2))
@@ -142,7 +141,7 @@ export class OpenAIProvider implements AIProvider {
     return this.generateText(buildPromptRequest(topic, style, context), {
       systemPrompt: PROMPT_SYSTEM,
       temperature: 0.9,
-      maxTokens: 120,
+      maxTokens: 1024,
     })
   }
 }

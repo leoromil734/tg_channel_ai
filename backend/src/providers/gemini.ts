@@ -38,7 +38,6 @@ export class GeminiProvider implements AIProvider {
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: {
         temperature: options.temperature ?? 0.8,
-        maxOutputTokens: options.maxTokens ?? 2048,
       },
     })
     return result.response.text()

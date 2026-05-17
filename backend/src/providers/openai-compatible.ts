@@ -65,7 +65,6 @@ export class OpenAICompatibleProvider implements AIProvider {
       model: this.model,
       messages,
       temperature: options.temperature ?? 0.8,
-      max_tokens: options.maxTokens ?? 2048,
       ...extraParams,
     } as Parameters<typeof this.client.chat.completions.create>[0])
 
@@ -138,7 +137,7 @@ export class OpenAICompatibleProvider implements AIProvider {
   async generatePrompt(topic: string, style: string, context?: string): Promise<string> {
     return this.generateText(
       `Create a concise text-to-image prompt (max 2 sentences).\nTopic: ${topic}\nStyle: ${style}${context ? `\nContext: ${context}` : ''}\n\nOutput ONLY the prompt, no explanation.`,
-      { systemPrompt: 'You are an expert at writing short, vivid text-to-image prompts. Output ONLY the prompt in English.', temperature: 0.9, maxTokens: 120 },
+      { systemPrompt: 'You are an expert at writing short, vivid text-to-image prompts. Output ONLY the prompt in English.', temperature: 0.9, maxTokens: 1024 },
     )
   }
 }
